@@ -118,6 +118,44 @@ public sealed class ApiTests : IDisposable
     }
 
     [Fact]
+    public async Task Admin_sets_c4_connection_in_browser_and_password_never_leaves_server()
+    {
+        var admin = await Login("admin", AdminPwd);
+
+        var save = await admin.PutAsJsonAsync("/api/settings/c4/connection",
+            new { serverUri = "c4server.firma.local/c4/", user = "svc-guestpass", password = "Tajne-haslo-1" });
+        save.EnsureSuccessStatusCode();
+        var raw = await save.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("Tajne-haslo-1", raw);
+        var view = JsonDocument.Parse(raw).RootElement;
+        Assert.Equal("https://c4server.firma.local", view.GetProperty("serverUri").GetString());   // /c4 obcięte, https dopisane
+        Assert.True(view.GetProperty("hasPassword").GetBoolean());
+        Assert.True(view.GetProperty("fromApp").GetBoolean());
+
+        // puste hasło = bez zmian
+        (await admin.PutAsJsonAsync("/api/settings/c4/connection", new { serverUri = "https://10.0.10.5", user = "svc2", password = "" })).EnsureSuccessStatusCode();
+        var again = (await admin.GetFromJsonAsync<JsonElement>("/api/settings/c4/connection"))!;
+        Assert.Equal("svc2", again.GetProperty("user").GetString());
+        Assert.True(again.GetProperty("hasPassword").GetBoolean());
+
+        // w bazie hasło jest zaszyfrowane
+        await using (var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")};Pooling=False"))
+        {
+            await db.OpenAsync();
+            var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT value_json FROM settings WHERE key='c4.connection'";
+            var stored = (string)(await cmd.ExecuteScalarAsync())!;
+            Assert.DoesNotContain("Tajne-haslo-1", stored);
+        }
+
+        var test = await admin.PostAsJsonAsync("/api/settings/c4/connection/test", new { serverUri = "https://10.0.10.5", user = "svc2", password = "" });
+        test.EnsureSuccessStatusCode();   // Mock: zawsze OK
+
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync("/api/settings/c4/connection", new { serverUri = "ftp://x", user = "a", password = "b" })).StatusCode);
+    }
+
+    [Fact]
     public async Task Admin_configures_c4_from_catalog()
     {
         var admin = await Login("admin", AdminPwd);

@@ -9,7 +9,10 @@ public sealed class C4Options
     /// <summary>Mock = bez serwera C4 (demo). SimpleClient = prawdziwe połączenie przez Gamanet Simple Client SDK.</summary>
     public C4GatewayMode Mode { get; set; } = C4GatewayMode.Mock;
 
-    /// <summary>Adres serwera C4 dla Simple Client, np. https://c4server.firma.local</summary>
+    /// <summary>
+    /// Adres serwera C4 dla Simple Client, np. https://c4server.firma.local. ServerUri/User/Password to wartości startowe –
+    /// po zapisaniu połączenia w aplikacji (Konfiguracja C4 → Połączenie z C4) obowiązuje to z bazy.
+    /// </summary>
     public string? ServerUri { get; set; }
     /// <summary>Techniczny operator C4 z prawem tworzenia osób w folderach gości (zasada minimalnych uprawnień).</summary>
     public string? User { get; set; }
@@ -48,6 +51,8 @@ public sealed class GuestPassOptions
 
     public string SiteName { get; set; } = "Recepcja";
     public string DatabasePath { get; set; } = "data/guestpass.db";
+    /// <summary>Klucze szyfrujące (sesje, hasło C4 zapisane w aplikacji). Puste = podkatalog keys obok bazy.</summary>
+    public string? KeysDirectory { get; set; }
     /// <summary>Ile minut przed początkiem wizyty uprawnienie staje się aktywne w C4.</summary>
     public int ActivateMinutesBefore { get; set; } = 30;
     /// <summary>Ile minut po końcu wizyty uprawnienie jest jeszcze aktywne.</summary>

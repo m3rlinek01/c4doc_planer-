@@ -3,13 +3,13 @@ using System.Runtime.Loader;
 using C4GuestPass.Domain;
 using Gamanet.C4.SDK;
 using Gamanet.C4.SimpleInterfaces;
-using Microsoft.Extensions.Options;
 
 namespace C4GuestPass.C4;
 
 /// <summary>
 /// Implementacja na Gamanet C4 Simple Client SDK 21.x (C4 2024) – pakiet Gamanet.C4.SimpleClient
-/// (SimpleClient + SimpleInterfaces, net461; działa w .NET 8 na Windows). API sprawdzone na bibliotekach SDK
+/// (SimpleClient + SimpleInterfaces, net461 bez kodu natywnego – działa w .NET 8 na Windows i na Linuksie;
+/// konektor RestClient łączy się z serwerem C4 przez HTTPS). API sprawdzone na bibliotekach SDK
 /// 21.0.10657 i połączeniem z serwerem C4 21.0:
 ///   new SimpleClient(ConnectorConfiguration.RestClient, katalogKonektorów)
 ///   client.Connect(Uri serwera (bez /c4 – SDK dokleja ścieżkę sam), user, password, out token)
@@ -47,31 +47,61 @@ public sealed class SimpleClientC4Gateway : IC4Gateway, IDisposable
         };
     }
 
-    private readonly C4Options _opt;
+    /// <summary>Limit na próbę połączenia – SDK czeka na nieosiągalny serwer nawet 100 s.</summary>
+    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(20);
+
+    private readonly C4ConnectionProvider _connection;
     private readonly ILogger<SimpleClientC4Gateway> _log;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private SimpleClient? _client;
+    private C4ConnectionInfo? _connectedWith;
     private Guid? _cardTypeId;
 
-    public SimpleClientC4Gateway(IOptions<C4Options> opt, ILogger<SimpleClientC4Gateway> log)
+    public SimpleClientC4Gateway(C4ConnectionProvider connection, ILogger<SimpleClientC4Gateway> log)
     {
-        _opt = opt.Value;
+        _connection = connection;
         _log = log;
     }
 
     private SimpleClient EnsureConnected()
     {
-        if (_client is not null) return _client;
+        // Administrator zmienił połączenie w aplikacji -> nowa sesja z nowymi danymi.
+        var conn = _connection.Current;
+        if (_client is not null && conn == _connectedWith) return _client;
+        DropClient();
+
+        _client = Connect(conn);
+        _connectedWith = conn;
+        _cardTypeId = null;
+        _log.LogInformation("Connected to C4 {Uri} as {User}", conn.ServerUri, conn.User);
+        return _client;
+    }
+
+    private static SimpleClient Connect(C4ConnectionInfo conn)
+    {
+        if (!conn.IsComplete)
+            throw new InvalidOperationException("Nie ustawiono połączenia z C4 – podaj adres serwera, login i hasło w Konfiguracji C4 → Połączenie z C4.");
 
         var client = new SimpleClient(ConnectorConfiguration.RestClient, ConnectorsDirectory);
-        var result = client.Connect(new Uri(_opt.ServerUri!), _opt.User!, _opt.Password!, out _);
+        ConnectionResult result;
+        try { result = client.Connect(new Uri(conn.ServerUri!), conn.User!, conn.Password!, out _); }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Brak połączenia z serwerem C4 {conn.ServerUri}: {Root(ex).Message}", ex);
+        }
         if (result != ConnectionResult.Successful)
-            throw new InvalidOperationException($"C4 connect failed: {result}");
-
-        _log.LogInformation("Connected to C4 {Uri} as {User}", _opt.ServerUri, _opt.User);
-        _client = client;
+            throw new InvalidOperationException(result switch
+            {
+                ConnectionResult.InvalidCredentials => $"C4 odrzucił logowanie użytkownika '{conn.User}' – sprawdź login i hasło.",
+                ConnectionResult.UnreachableServer => $"Brak połączenia z serwerem C4 {conn.ServerUri} – sprawdź adres i zaporę (port HTTPS serwera C4).",
+                ConnectionResult.InvalidCertificate => $"Serwer C4 {conn.ServerUri} przedstawił nieprawidłowy certyfikat HTTPS.",
+                ConnectionResult.NotSupportedServerVersion => "Wersja serwera C4 nie pasuje do wersji SDK, z którą zbudowano aplikację (C4 2024 = SDK 21).",
+                _ => $"Nie udało się zalogować do C4 {conn.ServerUri}: {result}",
+            });
         return client;
     }
+
+    private static Exception Root(Exception ex) => ex.InnerException is { } inner ? Root(inner) : ex;
 
     /// <summary>SDK jest synchroniczne – serializujemy wywołania i przy błędzie połączenia zrywamy sesję (reconnect przy następnym).</summary>
     private async Task<T> RunAsync<T>(Func<SimpleClient, T> action, CancellationToken ct)
@@ -93,6 +123,7 @@ public sealed class SimpleClientC4Gateway : IC4Gateway, IDisposable
     {
         try { _client?.Disconnect(); } catch { /* sesja i tak jest nieużywalna */ }
         _client = null;
+        _connectedWith = null;
     }
 
     /// <summary>Typ karty: wybrany w konfiguracji albo pierwszy włączony typ karty w C4.</summary>
@@ -203,7 +234,7 @@ public sealed class SimpleClientC4Gateway : IC4Gateway, IDisposable
                 .Concat(levels.Where(id => !AccessLevelVisible(c, id)).Select(id => $"poziom dostępu {id}"))
                 .ToList(), ct);
             return missing.Count == 0
-                ? new C4Health(true, "SimpleClient", $"Połączono z {_opt.ServerUri} jako {_opt.User}, stref: {zones.Count}, poziomów dostępu: {levels.Count}")
+                ? new C4Health(true, "SimpleClient", $"Połączono z {_connectedWith?.ServerUri} jako {_connectedWith?.User}, stref: {zones.Count}, poziomów dostępu: {levels.Count}")
                 : new C4Health(false, "SimpleClient", $"Połączono, ale brak w C4: {string.Join(", ", missing)}");
         }
         catch (Exception ex)
@@ -237,6 +268,30 @@ public sealed class SimpleClientC4Gateway : IC4Gateway, IDisposable
             .OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         return new C4Catalog(folders, levels, cards);
     }, ct);
+
+    public async Task<C4Health> TestConnectionAsync(C4ConnectionInfo connection, CancellationToken ct)
+    {
+        // Osobny klient – bieżąca sesja (i praca w tle) działa dalej na starych danych, dopóki administrator nie zapisze nowych.
+        var attempt = Task.Run(() =>
+        {
+            var client = Connect(connection);
+            try { return client.Credentials.GetEnabledCardTypes().Count; }
+            finally { try { client.Disconnect(); } catch { /* tylko test */ } }
+        }, ct);
+        try
+        {
+            var cardTypes = await attempt.WaitAsync(TestTimeout, ct);
+            return new C4Health(true, "SimpleClient", $"Połączenie działa: zalogowano do {connection.ServerUri} jako {connection.User} (włączone typy kart: {cardTypes}).");
+        }
+        catch (TimeoutException)
+        {
+            return new C4Health(false, "SimpleClient", $"Serwer C4 {connection.ServerUri} nie odpowiada w ciągu {TestTimeout.TotalSeconds:0} s – sprawdź adres i czy serwer GuestPass ma dostęp do portu HTTPS serwera C4 (zapora).");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return new C4Health(false, "SimpleClient", ex.Message);
+        }
+    }
 
     public void Dispose() => DropClient();
 }

@@ -1,6 +1,8 @@
 using System.ComponentModel.DataAnnotations;
+using C4GuestPass.C4;
 using C4GuestPass.Data;
 using C4GuestPass.Domain;
+using Microsoft.Extensions.Options;
 
 namespace C4GuestPass.Services;
 
@@ -62,6 +64,47 @@ public sealed class ConfigService(ISettingsStore settings, ITenancyStore tenancy
         zones.Remove(zone);
         await settings.SaveZonesAsync(zones, ct);
         log.LogInformation("Zone {Id} '{Name}' deleted by {Op}", zone.Id, zone.Name, me.Login);
+    }
+
+    private static void Require(CurrentUser me)
+    {
+        if (!me.IsBuildingAdmin) throw new UnauthorizedAccessException();
+    }
+}
+
+public sealed record C4ConnectionRequest(string? ServerUri, string? User, string? Password);
+
+/// <summary>Hasło nigdy nie wraca do przeglądarki – tylko informacja, czy jest ustawione.</summary>
+public sealed record C4ConnectionView(string Mode, string? ServerUri, string? User, bool HasPassword, bool FromApp);
+
+/// <summary>Połączenie z serwerem C4 (adres, konto) – edytowane w przeglądarce, wyłącznie przez administratora budynku.</summary>
+public sealed class C4ConnectionService(C4ConnectionProvider connection, IC4Gateway c4, IOptions<C4Options> opt, ILogger<C4ConnectionService> log)
+{
+    public C4ConnectionView Get(CurrentUser me)
+    {
+        Require(me);
+        var c = connection.Current;
+        return new C4ConnectionView(opt.Value.Mode.ToString(), c.ServerUri, c.User, !string.IsNullOrEmpty(c.Password), connection.FromApp);
+    }
+
+    public async Task<C4ConnectionView> SaveAsync(CurrentUser me, C4ConnectionRequest r, CancellationToken ct)
+    {
+        var info = Validate(me, r);
+        await connection.SaveAsync(info, ct);
+        log.LogInformation("C4 connection changed by {Op}: {Uri} as {User}", me.Login, info.ServerUri, info.User);
+        return Get(me);
+    }
+
+    public Task<C4Health> TestAsync(CurrentUser me, C4ConnectionRequest r, CancellationToken ct) =>
+        c4.TestConnectionAsync(Validate(me, r), ct);
+
+    private C4ConnectionInfo Validate(CurrentUser me, C4ConnectionRequest r)
+    {
+        Require(me);
+        if (string.IsNullOrWhiteSpace(r.User)) throw new ValidationException("Podaj login konta C4, którym aplikacja zakłada gości.");
+        var info = connection.Merge(r.ServerUri, r.User, r.Password);
+        if (string.IsNullOrEmpty(info.Password)) throw new ValidationException("Podaj hasło konta C4.");
+        return info;
     }
 
     private static void Require(CurrentUser me)

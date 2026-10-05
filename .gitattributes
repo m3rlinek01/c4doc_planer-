@@ -1,0 +1,5 @@
+# Skrypty i pliki dla Linuksa zawsze z LF (bash nie znosi CRLF)
+*.sh text eol=lf
+deploy/linux/* text eol=lf
+deploy/Caddyfile text eol=lf
+deploy/Dockerfile text eol=lf

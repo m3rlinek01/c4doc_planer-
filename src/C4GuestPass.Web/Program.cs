@@ -8,6 +8,7 @@ using C4GuestPass.Domain;
 using C4GuestPass.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -21,6 +22,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         ? AppContext.BaseDirectory : default,
 });
 builder.Host.UseWindowsService(o => o.ServiceName = "C4GuestPass");
+builder.Host.UseSystemd();   // Linux: powiadomienie systemd o starcie (Type=notify) i logi w formacie journald; poza systemd nic nie robi
 var services = builder.Services;
 
 services.Configure<C4Options>(builder.Configuration.GetSection(C4Options.Section));
@@ -31,6 +33,15 @@ services.Configure<BootstrapOptions>(builder.Configuration.GetSection(BootstrapO
 var contentRoot = builder.Environment.ContentRootPath;
 services.PostConfigure<GuestPassOptions>(o => o.DatabasePath = Path.GetFullPath(o.DatabasePath, contentRoot));
 services.PostConfigure<MailOptions>(o => o.PickupDirectory = Path.GetFullPath(o.PickupDirectory, contentRoot));
+
+// Klucze Data Protection (ciasteczka logowania, zaszyfrowane hasło C4 w bazie) trzymamy obok bazy – przeżywają restart
+// usługi/kontenera i przeniesienie katalogu danych na nowy serwer. Na Linuksie chroni je tylko prawo dostępu do katalogu
+// (instalator ustawia 700); na Windows dodatkowo DPAPI maszyny.
+var dataDir = Path.GetDirectoryName(Path.GetFullPath(
+    builder.Configuration[$"{GuestPassOptions.Section}:{nameof(GuestPassOptions.DatabasePath)}"] ?? new GuestPassOptions().DatabasePath, contentRoot))!;
+var keysDir = Path.GetFullPath(builder.Configuration[$"{GuestPassOptions.Section}:{nameof(GuestPassOptions.KeysDirectory)}"] ?? Path.Combine(dataDir, "keys"), contentRoot);
+var dataProtection = services.AddDataProtection().SetApplicationName("C4GuestPass").PersistKeysToFileSystem(Directory.CreateDirectory(keysDir));
+if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
 
 services.AddSingleton(TimeProvider.System);
 services.AddSingleton<Database>();
@@ -43,6 +54,8 @@ services.AddSingleton<IGuestMailer, GuestMailer>();
 services.AddScoped<UserService>();
 services.AddScoped<VisitService>();
 services.AddScoped<ConfigService>();
+services.AddScoped<C4ConnectionService>();
+services.AddSingleton<C4ConnectionProvider>();
 services.AddHostedService<ProvisioningWorker>();
 
 var appCfg = builder.Configuration.GetSection(GuestPassOptions.Section).Get<GuestPassOptions>() ?? new();
@@ -240,6 +253,14 @@ secured.MapGet("/settings/c4", async (HttpContext ctx, ISettingsStore settings, 
 
 secured.MapPut("/settings/c4", async (C4SettingsRequest r, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
     await cfg.SaveC4Async(Me(ctx), r, ct));
+
+secured.MapGet("/settings/c4/connection", (HttpContext ctx, C4ConnectionService conn) => conn.Get(Me(ctx)));
+
+secured.MapPut("/settings/c4/connection", async (C4ConnectionRequest r, HttpContext ctx, C4ConnectionService conn, CancellationToken ct) =>
+    await conn.SaveAsync(Me(ctx), r, ct));
+
+secured.MapPost("/settings/c4/connection/test", async (C4ConnectionRequest r, HttpContext ctx, C4ConnectionService conn, CancellationToken ct) =>
+    await conn.TestAsync(Me(ctx), r, ct));
 
 secured.MapPost("/zones", async (ZoneRequest r, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
     await cfg.SaveZoneAsync(Me(ctx), null, r, ct));

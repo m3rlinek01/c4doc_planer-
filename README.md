@@ -13,6 +13,7 @@ Recepcja widzi listę gości i rejestruje wejścia/wyjścia.
 
 Dokumentacja:
 
+- **[Wdrożenie na serwerze Linux](docs/WDROZENIE-LINUX.md)** – paczka z C4 SDK, instalator (systemd + HTTPS), połączenie z C4 ustawiane w przeglądarce.
 - **[Instrukcja administratora budynku](docs/INSTRUKCJA-ADMINISTRATORA.md)** – konfiguracja C4 w aplikacji (wybór z list, bez GUID-ów), firmy, konta, rozwiązywanie problemów.
 - **[Integracja z C4 2024 – opis techniczny](docs/INTEGRACJA-C4-2024.md)** – budowanie z SDK 21, jak aplikacja zakłada gościa, poziom dostępu i kartę w C4, test po wdrożeniu.
 - **[Analiza](docs/ANALIZA.md)** – model danych C4, czytniki QR, formaty kodów, ryzyka, alternatywy.
@@ -29,7 +30,7 @@ Dokumentacja:
 3. [Przygotowanie po stronie C4](#przygotowanie-po-stronie-c4)
 4. [Konfiguracja](#konfiguracja)
 5. [Role](#role)
-6. [Wdrożenie](#wdrożenie) – [Docker](#docker), [IIS](#iis-windows-server), [usługa Windows](#usługa-windows)
+6. [Wdrożenie](#wdrożenie) – [Linux (zalecane)](#linux-serwer-zdalny), [Docker](#docker), [IIS](#iis-windows-server), [usługa Windows](#usługa-windows)
 7. [Testy](#testy)
 8. [Struktura projektu](#struktura-projektu)
 9. [Bezpieczeństwo](#bezpieczeństwo)
@@ -80,8 +81,10 @@ i skryptu Windows (`-C4SdkVersion 2024`).
 
 **C4 2024 (serwer 21.0) – sprawdzone.** Wariant `2024` bierze pakiet `Gamanet.C4.SimpleClient` **21.0.10657.17457**
 z lokalnej instalacji C4 SDK (`C:\Program Files (x86)\Gamanet\C4 SDK`; inny katalog: `-p:C4SdkLocalFeed=...`),
-bez feedu online. SDK jest skompilowane pod .NET Framework 4.6.1 i działa w .NET 8 **tylko na Windows**
-(IIS / usługa Windows – nie w kontenerze Linux). Konektory SDK są kopiowane do `Connectors\` obok aplikacji.
+bez feedu online. SDK jest skompilowane pod .NET Framework 4.6.1, ale to czysty kod zarządzany bez zależności
+od Windows – działa w .NET 8 **na Windows i na Linuksie** (sprawdzone: Ubuntu 24.04 ↔ C4 21.0), łącząc się z serwerem C4
+przez HTTPS. Konektory SDK są kopiowane do `Connectors/` obok aplikacji.
+Paczkę dla Linuksa buduje `deploy\build-linux.ps1` – patrz [Wdrożenie na Linuksie](docs/WDROZENIE-LINUX.md).
 `C4:ServerUri` to adres **bez** `/c4` (np. `https://c4server.firma.local`) – SDK dokleja ścieżkę samo.
 
 Wymagania (wariant `2026`):
@@ -210,12 +213,32 @@ Pliki wdrożeniowe:
 
 | Plik | Do czego |
 |---|---|
+| `deploy/build-linux.ps1` | paczka `.tar.gz` dla serwera Linux (samodzielna, z C4 SDK) |
+| `deploy/linux/install.sh` | instalator na serwerze: usługa systemd, katalogi, opcjonalnie Caddy z HTTPS |
+| `deploy/linux/c4guestpass.service`, `c4guestpass.env.example`, `nginx.conf` | usługa systemd, wzór konfiguracji, wzór dla istniejącego nginx |
+| `deploy/prepare-c4-sdk.ps1` | kopiuje pakiety C4 SDK do `deploy/c4-sdk/` (do budowania obrazu Docker z C4 2024) |
 | `deploy/Dockerfile` | obraz Linux (multi-stage SDK → aspnet:8.0, użytkownik bez roota, port 8080) |
 | `deploy/docker-compose.yml` | aplikacja + opcjonalny Caddy z HTTPS (profil `https`) |
 | `deploy/Caddyfile` | konfiguracja reverse proxy |
 | `deploy/.env.example` | wersja SDK i sekrety dla `docker compose` |
 | `deploy/appsettings.Production.example.json` | pełny przykład konfiguracji produkcyjnej |
 | `deploy/windows/install-service.ps1`, `uninstall-service.ps1` | usługa Windows (wymaga zmiany w kodzie – patrz niżej) |
+
+### Linux (serwer zdalny)
+
+Zalecany sposób: program na serwerze Linux, obsługa wyłącznie przez przeglądarkę, połączenie z C4 przez sieć.
+Krok po kroku: **[docs/WDROZENIE-LINUX.md](docs/WDROZENIE-LINUX.md)**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\build-linux.ps1          # Windows z C4 SDK -> dist\c4guestpass-linux-x64.tar.gz
+```
+```bash
+tar xzf c4guestpass-linux-x64.tar.gz && cd c4guestpass-linux-x64
+sudo bash install.sh --domain guestpass.firma.pl                       # usługa systemd + Caddy z HTTPS
+```
+
+Adres serwera C4, login i hasło ustawia potem administrator budynku w **Konfiguracja C4 → Połączenie z C4**.
+Hasło jest zapisywane w bazie w postaci zaszyfrowanej.
 
 ### Docker
 
@@ -375,5 +398,6 @@ C4GuestPass.sln
 - **Dane osobowe (RODO):** baza zawiera imiona, nazwiska, e-maile i telefony gości. Zakończone wizyty są
   usuwane automatycznie po `GuestPass:RetentionDays` dniach (domyślnie 90; 0 = wyłączone). Zabezpiecz też
   kopie zapasowe katalogu `data/` – kopie podlegają tej samej retencji.
-- **Klucze Data Protection** (szyfrują ciasteczka) trzymaj trwale: wolumen `guestpass-keys` w Dockerze,
-  `loadUserProfile=true` w IIS.
+- **Klucze Data Protection** (szyfrują ciasteczka i hasło C4 zapisane w aplikacji) są w katalogu `keys/` obok bazy
+  (`GuestPass:KeysDirectory`, aby zmienić). Na Windows są dodatkowo chronione DPAPI maszyny, na Linuksie prawami katalogu (`700`).
+  Kopia zapasowa musi obejmować bazę **i** `keys/`.

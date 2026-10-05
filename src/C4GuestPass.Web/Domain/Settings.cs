@@ -26,3 +26,14 @@ public sealed class C4Settings
 
     public bool IsPin => string.Equals(CredentialType, "PIN", StringComparison.OrdinalIgnoreCase);
 }
+
+/// <summary>
+/// Połączenie z serwerem C4 ustawione w aplikacji (Konfiguracja C4 → Połączenie). Hasło zapisane w bazie
+/// zaszyfrowane kluczem ASP.NET Data Protection. Dopóki administrator go nie zapisze, obowiązują wartości C4:ServerUri/User/Password.
+/// </summary>
+public sealed class C4ConnectionSettings
+{
+    public string? ServerUri { get; set; }
+    public string? User { get; set; }
+    public string? ProtectedPassword { get; set; }
+}

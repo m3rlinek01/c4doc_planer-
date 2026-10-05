@@ -17,7 +17,7 @@ są rozstrzygnięte poniżej.
 | Polecenie | `dotnet publish src/C4GuestPass.Web -c Release -p:C4SdkVersion=2024 -o <katalog>` |
 | Pakiet SDK | `Gamanet.C4.SimpleClient` **21.0.10657.17457** (zawiera `SimpleClient` i `SimpleInterfaces`; osobnego pakietu `SimpleInterfaces` nie ma) |
 | Źródło pakietu | lokalna instalacja C4 SDK: `C:\Program Files (x86)\Gamanet\C4 SDK` (katalog w układzie `id/wersja/*.nupkg`); inny katalog: `-p:C4SdkLocalFeed=...`, inna wersja: `-p:C4SdkPackageVersion=...` |
-| Platforma | SDK jest skompilowane pod **.NET Framework 4.6.1** i działa w .NET 8 **tylko na Windows** (IIS albo usługa Windows). Obraz Docker/Linux z SDK 2024 nie zadziała. |
+| Platforma | SDK jest skompilowane pod **.NET Framework 4.6.1**, ale zależy tylko od `mscorlib`/`System`/`System.Core`/`System.Xml`/`Newtonsoft.Json`, a konektor `SapiClientConnector` to zwykłe `HttpWebRequest`. Działa więc w .NET 8 **na Windows i na Linuksie** (sprawdzone: Ubuntu 24.04 w WSL2 ↔ C4 21.0, pełny cykl gościa). Paczka dla Linuksa: `deploy\build-linux.ps1` (`-r linux-x64 --self-contained`); Docker: `deploy\prepare-c4-sdk.ps1` + `C4_SDK_VERSION=2024`. Zob. [WDROZENIE-LINUX.md](WDROZENIE-LINUX.md). |
 | Konektory | `content/Connectors/*.dll` z pakietu kopiowane są do `bin\Connectors\`. .NET 8 nie czyta `<probing privatePath>` z `app.config`, więc brakujące zestawy (np. `Gamanet.C4.ConnectorsConfiguration`) dociąga `AssemblyLoadContext.Resolving` w `SimpleClientC4Gateway`. |
 
 Build bez `C4SdkVersion` (tryb Mock) działa jak dotąd – do demo i testów.
@@ -30,7 +30,13 @@ client.Connect(new Uri("https://serwer-c4"), user, password, out _);   // Connec
 ```
 
 * `C4:ServerUri` to adres **bez** `/c4` – SDK samo dokleja `/c4/sapi/...`. Z `/c4` serwer zwraca
-  `NotSupportedServerVersion`.
+  `NotSupportedServerVersion` (aplikacja obcina `/c4` i `/c4/sapi` z adresu wpisanego w przeglądarce).
+* Adres, login i hasło ustawia administrator budynku w **Konfiguracja C4 → Połączenie z C4**
+  (`GET/PUT /api/settings/c4/connection`, test bez zapisu: `POST /api/settings/c4/connection/test`). Hasło jest w bazie
+  zaszyfrowane (ASP.NET Data Protection, klucze w `data/keys`) i nigdy nie wraca do przeglądarki. Dopóki połączenie nie jest zapisane
+  w aplikacji, obowiązują `C4:ServerUri/User/Password` z konfiguracji. Po zmianie gateway sam zrywa sesję i loguje się nowymi danymi.
+* Certyfikat serwera C4 nie jest weryfikowany przez SDK (`ServicePointManager.ServerCertificateValidationCallback` zwraca `true`) –
+  samopodpisany `CN=c4server` działa również z Linuksa.
 * W SDK 21 jedynym konektorem jest **REST** (`ConnectorConfiguration.RestClient`); `C4:Connector` jest ignorowane.
 * Wyniki `Connect`: `Successful`, `InvalidCredentials` (złe konto), `UnreachableServer`, `InvalidCertificate`,
   `NotSupportedServerVersion` (zły adres lub wersja SDK).
@@ -141,6 +147,8 @@ stref i poziomy dostępu z konfiguracji istnieją w C4 i są widoczne dla konta 
 
 | Endpoint | Kto | Co |
 |---|---|---|
+| `GET/PUT /api/settings/c4/connection` | administrator budynku | adres serwera C4, login, hasło (hasło tylko zapis – odpowiedź mówi jedynie `hasPassword`) |
+| `POST /api/settings/c4/connection/test` | administrator budynku | próbne logowanie do C4 podanymi danymi, bez zapisu (limit 20 s) |
 | `GET /api/c4/catalog` | administrator budynku | foldery (ze ścieżką), poziomy dostępu, włączone typy kart |
 | `GET/PUT /api/settings/c4` | administrator budynku | rodzaj identyfikatora, typ karty, wspólne poziomy dostępu |
 | `GET /api/zones` | zalogowani | strefy |
@@ -181,5 +189,6 @@ z prawami ograniczonymi do folderów gości i poziomów dostępu dla gości – 
 
 * Typ karty jest jeden dla całego budynku (zależy od czytników), nie per firma.
 * Wariant `C4SdkVersion=2026` nie był testowany – wymaga sprawdzenia API SDK 2026 (może różnić się od 21).
-* SDK 2024 działa tylko na Windows (pkt 1).
+* Pakietów C4 SDK nie ma w publicznym feedzie – paczkę Linux / obraz Docker buduje się z lokalnej instalacji SDK (pkt 1)
+  i nie publikuje poza firmą (licencja Gamanet).
 * Aplikacja działa w **jednej instancji** (SQLite + worker); blokada z pkt 8 chroni w obrębie jednego procesu.

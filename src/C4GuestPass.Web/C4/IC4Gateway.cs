@@ -51,4 +51,7 @@ public interface IC4Gateway
     Task<C4Health> CheckAsync(IReadOnlyList<Zone> zones, IReadOnlyList<Guid> accessLevelIds, CancellationToken ct);
 
     Task<C4Catalog> GetCatalogAsync(CancellationToken ct);
+
+    /// <summary>Próbne logowanie do C4 podanymi danymi (bez zapisywania i bez wpływu na bieżące połączenie).</summary>
+    Task<C4Health> TestConnectionAsync(C4ConnectionInfo connection, CancellationToken ct);
 }

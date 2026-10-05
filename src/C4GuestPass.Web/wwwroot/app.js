@@ -562,8 +562,8 @@ function renderConfig() {
 
 async function loadConfig(force) {
   try {
-    const [c4, zones, health] = await Promise.all([api('/settings/c4'), api('/zones'), api('/health'), loadCatalog(force)]);
-    S.c4 = c4; S.zones = zones; S.health = health;
+    const [conn, c4, zones, health] = await Promise.all([api('/settings/c4/connection'), api('/settings/c4'), api('/zones'), api('/health'), loadCatalog(force)]);
+    S.conn = conn; S.c4 = c4; S.zones = zones; S.health = health;
   } catch (e) { toast(e.message, true); return; }
   if ((location.hash.slice(2) || 'visits') === 'config') drawConfig();
   if (force) { checkC4(); toast(S.catalog ? 'Pobrano aktualne dane z C4' : 'Nie udało się połączyć z C4', !S.catalog); }
@@ -586,6 +586,7 @@ function drawConfig() {
       <div class="spacer"></div><button class="btn" id="refresh">Odśwież dane z C4</button></div>
     ${S.catalogError ? `<div class="notice bad">${esc(S.catalogError)} Ustawienia możesz przeglądać, ale wybór z list będzie możliwy po przywróceniu połączenia.</div>`
       : S.health && !S.health.ok ? `<div class="notice bad"><b>Do poprawy:</b> ${esc(S.health.message)}. Wybierz właściwy folder lub uprawnienie z listy albo usuń nieużywaną strefę.</div>` : ''}
+    ${connPanel()}
 
     <form class="panel" id="c4form" novalidate>
       <h2>Karta gościa</h2>
@@ -618,6 +619,7 @@ function drawConfig() {
         <tbody>${zoneRows || '<tr><td colspan="5" class="muted">Nie ma jeszcze stref – dodaj pierwszą.</td></tr>'}</tbody></table>
     </section>`;
 
+  bindConnPanel();
   const form = $('#c4form');
   form.querySelectorAll('input[name=ctype]').forEach(r => r.onchange = () => { $('#cardTypeBox').hidden = form.querySelector('input[name=ctype]:checked').value !== 'Card'; });
   form.onsubmit = async e => {
@@ -641,6 +643,56 @@ function drawConfig() {
       { label: 'Usuń strefę', icon: I.trash, danger: true, run: () => confirmDeleteZone(z) },
     ]);
   });
+}
+
+/* Połączenie z serwerem C4: adres i konto ustawiane w przeglądarce (serwer GuestPass może stać gdziekolwiek, np. na Linuksie). */
+function connPanel() {
+  const c = S.conn, demo = c.mode === 'Mock', ok = !!S.catalog && !demo;
+  return `
+    <form class="panel" id="connForm" novalidate>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="margin:0">Połączenie z C4</h2>
+        <span class="conn-state"><span class="dot ${demo ? 'wait' : ok ? 'ok' : 'bad'}"></span>${demo ? 'tryb demonstracyjny' : ok ? 'połączono' : 'brak połączenia'}</span>
+      </div>
+      <p class="lead">Adres serwera C4 i konto, którym aplikacja zakłada i usuwa gości. Wpisz sam adres serwera – bez <b>/c4</b> na końcu.</p>
+      ${demo ? `<div class="notice">Aplikacja działa w trybie demonstracyjnym i nie łączy się z prawdziwym C4. Tryb ustawia instalator (C4__Mode=SimpleClient).</div>` : ''}
+      <fieldset ${demo ? 'disabled' : ''} style="border:0;padding:0;margin:0">
+        ${field('cUri', 'Adres serwera C4', `<input class="input" id="cUri" value="${esc(c.serverUri || '')}" placeholder="https://c4server.firma.local" autocomplete="off" spellcheck="false">`,
+          'Np. https://c4server.firma.local albo https://10.0.10.5. Serwer, na którym działa ta aplikacja, musi mieć dostęp do portu HTTPS serwera C4.')}
+        <div class="grid2">
+          ${field('cUser', 'Login konta C4', `<input class="input" id="cUser" value="${esc(c.user || '')}" autocomplete="off" spellcheck="false">`, 'Konto operatora C4 z prawem zakładania osób.')}
+          ${field('cPass', 'Hasło', `<input class="input" id="cPass" type="password" autocomplete="new-password" placeholder="${c.hasPassword ? '•••••••• – bez zmian' : ''}">`,
+            c.hasPassword ? 'Zostaw puste, żeby nie zmieniać hasła.' : 'Hasło jest przechowywane w zaszyfrowanej postaci.')}
+        </div>
+        <div id="connResult" hidden></div>
+        <div class="panel-foot">
+          <button type="button" class="btn" id="connTest">Sprawdź połączenie</button>
+          <button type="submit" class="btn primary">Zapisz połączenie</button>
+        </div>
+      </fieldset>
+    </form>`;
+}
+
+function bindConnPanel() {
+  const form = $('#connForm');
+  const body = () => ({ serverUri: val(form, 'cUri'), user: val(form, 'cUser'), password: $('#cPass').value });
+  const show = (ok, msg) => { const r = $('#connResult'); r.className = 'notice' + (ok ? ' good' : ' bad'); r.textContent = msg; r.hidden = false; };
+  $('#connTest').onclick = async () => {
+    const b = $('#connTest'); b.disabled = true; b.textContent = 'Sprawdzam…';
+    try { const h = await api('/settings/c4/connection/test', { method: 'POST', body: body() }); show(h.ok, h.message); }
+    catch (ex) { show(false, ex.message); }
+    finally { b.disabled = false; b.textContent = 'Sprawdź połączenie'; }
+  };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      S.conn = await api('/settings/c4/connection', { method: 'PUT', body: body() });
+      toast('Zapisano połączenie z C4');
+      await loadConfig(true);
+    } catch (ex) { show(false, ex.message); }
+    finally { btn.disabled = false; }
+  };
 }
 
 async function refreshHealth() {

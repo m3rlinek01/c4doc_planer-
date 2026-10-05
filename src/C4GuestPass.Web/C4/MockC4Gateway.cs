@@ -33,6 +33,9 @@ public sealed class MockC4Gateway(ILogger<MockC4Gateway> log) : IC4Gateway
     public Task<C4Health> CheckAsync(IReadOnlyList<Zone> zones, IReadOnlyList<Guid> accessLevelIds, CancellationToken ct) =>
         Task.FromResult(new C4Health(true, "Mock", $"Symulacja C4 – {Persons.Count} aktywnych gości"));
 
+    public Task<C4Health> TestConnectionAsync(C4ConnectionInfo connection, CancellationToken ct) =>
+        Task.FromResult(new C4Health(true, "Mock", "Tryb demonstracyjny – aplikacja nie łączy się z prawdziwym C4."));
+
     /// <summary>Przykładowe drzewo C4 – foldery zgodne z domyślnymi strefami z appsettings.json.</summary>
     public Task<C4Catalog> GetCatalogAsync(CancellationToken ct) => Task.FromResult(new C4Catalog(
         [

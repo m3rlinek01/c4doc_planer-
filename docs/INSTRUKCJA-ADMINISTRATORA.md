@@ -38,7 +38,8 @@ Te rzeczy przygotowuje administrator C4 w kliencie C4 (jednorazowo):
 | **Folder osób dla gości** | Tu GuestPass zakłada gości. Może być jeden wspólny albo osobny dla każdej strefy/firmy. | `PIR / asd`, `Goście / Hol` |
 | **Poziom dostępu dla gości** | Określa, które drzwi i w jakich godzinach otwiera kod gościa. | `visitor` |
 | **Włączony typ karty** | W tym formacie zapisywany jest numer z kodu QR. Kod ma 12 cyfr, więc typ karty musi być co najmniej **40-bitowy** (np. 48-bitowy). | `CARD 48` |
-| **Konto techniczne dla GuestPass** | Konto, którym GuestPass loguje się do C4 (podaje je instalator w konfiguracji serwera). | `support`, `svc-guestpass` |
+| **Konto techniczne dla GuestPass** | Konto, którym GuestPass loguje się do C4 (wpisujesz je w *Konfiguracja C4 → Połączenie z C4*). | `support`, `svc-guestpass` |
+| **Dostęp sieciowy** | Serwer, na którym działa GuestPass (np. Linux w serwerowni), musi łączyć się z serwerem C4 po HTTPS (port 443). | zapora Windows na serwerze C4 |
 | **Czytniki QR przy drzwiach** | Odczytują kod z telefonu i przekazują go do C4 jak numer karty. | 2N Access Unit QR |
 
 > **Ważne:** w C4 poziomu dostępu nie da się przypisać do folderu (klient C4 zgłasza wtedy błąd
@@ -48,7 +49,8 @@ Te rzeczy przygotowuje administrator C4 w kliencie C4 (jednorazowo):
 ## 3. Pierwsza konfiguracja krok po kroku
 
 1. Zaloguj się kontem administratora budynku (przy pierwszym logowaniu ustawisz własne hasło).
-2. Wejdź w **Konfiguracja C4** (menu po lewej). Na dole menu powinno być widać **„C4: połączono”**.
+2. Wejdź w **Konfiguracja C4** (menu po lewej). W sekcji **Połączenie z C4** wpisz adres serwera C4, login i hasło,
+   kliknij **Sprawdź połączenie**, a potem **Zapisz połączenie**. Na dole menu powinno być widać **„C4: połączono”**.
 3. W sekcji **Karta gościa** zostaw **Karta** i wybierz typ karty, np. **CARD 48**.
 4. W sekcji **Uprawnienia każdego gościa** zaznacz poziom dostępu dla gości, np. **visitor**.
    Kliknij **Zapisz ustawienia**.
@@ -62,6 +64,16 @@ Te rzeczy przygotowuje administrator C4 w kliencie C4 (jednorazowo):
 ![Konfiguracja C4](screens/c4-01-konfiguracja.png)
 
 ## 4. Konfiguracja C4 – opis ekranu
+
+### Połączenie z C4
+
+* **Adres serwera C4** – np. `https://c4server.firma.local` albo `https://10.0.10.5`. Wystarczy sam adres; dopisek `/c4` aplikacja usunie sama.
+* **Login konta C4 / Hasło** – konto operatora C4, którym aplikacja zakłada i usuwa gości. Hasło jest przechowywane
+  w postaci zaszyfrowanej i nie jest nigdy pokazywane; pole puste przy zapisie = hasło bez zmian.
+* **Sprawdź połączenie** – próbne logowanie bez zapisywania. Komunikat mówi, co jest nie tak (złe hasło, brak dostępu do serwera, zły adres).
+* **Zapisz połączenie** – od tej chwili aplikacja używa nowych danych (bez restartu).
+
+![Połączenie z C4](screens/linux-polaczenie-c4.png)
 
 ### Karta gościa
 
@@ -147,7 +159,7 @@ albo *Jak w systemie*; na ekranie logowania – przełącznikiem w prawym górny
 
 | Objaw | Przyczyna | Co zrobić |
 |---|---|---|
-| Na dole menu **„C4: błąd”** (widoczne tylko dla administratora budynku) | Brak połączenia z C4 albo coś w konfiguracji nie istnieje w C4 | Wejdź w *Konfiguracja C4* – ramka *Do poprawy* mówi, co poprawić. Brak połączenia: sprawdź, czy działa usługa *C4 Application Server*, i zgłoś instalatorowi. |
+| Na dole menu **„C4: błąd”** (widoczne tylko dla administratora budynku) | Brak połączenia z C4 albo coś w konfiguracji nie istnieje w C4 | Wejdź w *Konfiguracja C4* – ramka *Do poprawy* mówi, co poprawić. Brak połączenia: *Połączenie z C4 → Sprawdź połączenie*; sprawdź, czy działa usługa *C4 Application Server* i czy zapora przepuszcza ruch z serwera GuestPass (port 443). |
 | Wizyta ze statusem **„Kod jeszcze nieaktywny”** | C4 odrzucił zakładanie gościa | *⋯ → Szczegóły problemu* – administrator budynku widzi tam szczegóły techniczne (pracownicy firm widzą tylko proste wyjaśnienie). GuestPass ponawia próbę co 30 s (do 10 razy). |
 | „…invalid or disabled CardTypeId…” | Wybrany typ karty jest wyłączony w C4 | Włącz typ karty w C4 albo wybierz inny w *Konfiguracji C4*. |
 | „…brak włączonych typów kart…” | W C4 nie ma żadnego włączonego typu karty | Włącz typ karty (min. 40-bitowy) w C4 albo wybierz *PIN*. |

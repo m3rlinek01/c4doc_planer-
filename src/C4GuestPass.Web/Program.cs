@@ -8,15 +8,29 @@ using C4GuestPass.Domain;
 using C4GuestPass.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.Extensions.Options;
 
-var builder = WebApplication.CreateBuilder(args);
+// Jako usługa Windows katalogiem roboczym jest System32 – content root ustawiamy na katalog aplikacji.
+var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+{
+    Args = args,
+    ContentRootPath = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService()
+        ? AppContext.BaseDirectory : default,
+});
+builder.Host.UseWindowsService(o => o.ServiceName = "C4GuestPass");
 var services = builder.Services;
 
 services.Configure<C4Options>(builder.Configuration.GetSection(C4Options.Section));
 services.Configure<GuestPassOptions>(builder.Configuration.GetSection(GuestPassOptions.Section));
 services.Configure<MailOptions>(builder.Configuration.GetSection(MailOptions.Section));
 services.Configure<BootstrapOptions>(builder.Configuration.GetSection(BootstrapOptions.Section));
+// Ścieżki względne liczone od katalogu aplikacji, nie od bieżącego katalogu procesu (IIS / usługa / Docker).
+var contentRoot = builder.Environment.ContentRootPath;
+services.PostConfigure<GuestPassOptions>(o => o.DatabasePath = Path.GetFullPath(o.DatabasePath, contentRoot));
+services.PostConfigure<MailOptions>(o => o.PickupDirectory = Path.GetFullPath(o.PickupDirectory, contentRoot));
 
 services.AddSingleton(TimeProvider.System);
 services.AddSingleton<Database>();
@@ -28,6 +42,25 @@ services.AddSingleton<IGuestMailer, GuestMailer>();
 services.AddScoped<UserService>();
 services.AddScoped<VisitService>();
 services.AddHostedService<ProvisioningWorker>();
+
+var appCfg = builder.Configuration.GetSection(GuestPassOptions.Section).Get<GuestPassOptions>() ?? new();
+
+// Za reverse proxy (IIS/nginx/Caddy) z terminacją TLS – właściwy schemat https i IP klienta.
+services.Configure<ForwardedHeadersOptions>(o =>
+{
+    o.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    o.KnownNetworks.Clear();
+    o.KnownProxies.Clear();
+});
+
+// Ochrona przed zgadywaniem haseł: limit prób logowania na IP.
+services.AddRateLimiter(o =>
+{
+    o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    o.AddPolicy("login", ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "?",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = appCfg.LoginAttemptsPerMinute, Window = TimeSpan.FromMinutes(1) }));
+});
 
 var c4Mode = builder.Configuration.GetSection(C4Options.Section).Get<C4Options>()?.Mode ?? C4GatewayMode.Mock;
 if (c4Mode == C4GatewayMode.SimpleClient)
@@ -51,7 +84,7 @@ services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
         o.Cookie.Name = "c4gp";
         o.Cookie.HttpOnly = true;
         o.Cookie.SameSite = SameSiteMode.Strict;
-        o.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        o.Cookie.SecurePolicy = appCfg.SecureCookies ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
         o.ExpireTimeSpan = TimeSpan.FromHours(10);
         o.SlidingExpiration = true;
         o.LoginPath = "/login.html";
@@ -79,11 +112,13 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
     await scope.ServiceProvider.GetRequiredService<UserService>().BootstrapAsync(CancellationToken.None);
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 // Ochrona CSRF dla API: wymagany nagłówek, którego formularz z obcej strony nie ustawi (+ SameSite=Strict).
 app.Use(async (ctx, next) =>
@@ -142,7 +177,7 @@ api.MapPost("/login", async (LoginRequest req, UserService users, HttpContext ct
     }
     await ctx.SignInAsync(UserService.ToPrincipal(u, CookieAuthenticationDefaults.AuthenticationScheme));
     return Results.Ok(new { u.Login, u.MustChangePassword });
-});
+}).RequireRateLimiting("login");
 
 api.MapPost("/logout", async (HttpContext ctx) =>
 {

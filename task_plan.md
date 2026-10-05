@@ -18,18 +18,18 @@ Phase 5
 ### Phase 4: Design solution architecture + alternatives + risks
 - **Status:** complete
 ### Phase 5: Write deliverable (ANALIZA.md, PL) + PoC skeleton if justified, commit & push
-- **Status:** pending
+- **Status:** complete
 
 ### Phase 6: (user req) Multi-tenant: accounts bound to companies; company grants guest permissions
 - companies + users in DB, roles BuildingAdmin / CompanyAdmin / Receptionist, per-company zones + quota, visits scoped by company
-- **Status:** in_progress
+- **Status:** complete
 ### Phase 7: (user req) Modern, non-generic UI redesign (sidebar app, drawer form, vendored font)
-- **Status:** pending
+- **Status:** complete
 ### Phase 8: ANALIZA.md + README, tests, commit & push
-- **Status:** pending
+- **Status:** complete
 
 ## Next Step
-Implement multi-tenant model (Phase 6).
+Done. Remaining: push blocked (GitHub App lacks access to repo); on-site verification of SDK VERIFY points (docs/ANALIZA.md §7).
 
 ## Decisions Made
 | .NET 8 ASP.NET Core backend + static web UI | SimpleClient SDK is .NET; browser cannot host it |
@@ -41,4 +41,7 @@ Implement multi-tenant model (Phase 6).
 ## Errors Encountered
 | Error | Attempt | Resolution |
 |-------|---------|------------|
+| git push 403 (Claude GitHub App no access to m3rlinek01/c4doc_planer-) | 1 | Committed locally; user must connect GitHub / install app |
+| pkill -f matched own shell (exit 144) | 2 | run pkill in separate call with [C] bracket pattern |
+| enum role JSON binding 400 in API test | 1 | JsonStringEnumConverter |
 | wiki.gamanet.com CONNECT 403 (curl) + WebFetch EGRESS_BLOCKED | 1-2 | Host denied by env network policy. Pivot: WebSearch snippets, archive.org, GitHub SDK samples, NuGet packages |

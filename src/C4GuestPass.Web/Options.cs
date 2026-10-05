@@ -54,6 +54,12 @@ public sealed class GuestPassOptions
     public string QrPayloadPrefix { get; set; } = "";
     public int WorkerIntervalSeconds { get; set; } = 30;
     public int MaxProvisionAttempts { get; set; } = 10;
+    /// <summary>RODO: po ilu dniach od końca wizyty usuwać dane gościa (0 = nie usuwać).</summary>
+    public int RetentionDays { get; set; } = 90;
+    /// <summary>Ciasteczko sesji tylko po HTTPS. Wyłączać wyłącznie w środowisku deweloperskim.</summary>
+    public bool SecureCookies { get; set; } = true;
+    /// <summary>Limit prób logowania na adres IP na minutę.</summary>
+    public int LoginAttemptsPerMinute { get; set; } = 10;
 }
 
 public sealed class MailOptions

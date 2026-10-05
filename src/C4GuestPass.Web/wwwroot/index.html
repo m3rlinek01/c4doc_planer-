@@ -1,56 +1,18 @@
 <!doctype html>
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>C4 GuestPass</title><link rel="stylesheet" href="app.css"></head>
+<title>GuestPass</title><link rel="icon" href="logo.svg"><link rel="stylesheet" href="app.css"></head>
 <body>
-<header>
-  <h1 id="site">C4 GuestPass</h1>
-  <span id="health" class="health">C4: …</span>
-  <span class="who" id="who"></span>
-  <button class="small" id="logout">Wyloguj</button>
-</header>
-<main>
-  <section class="card">
-    <h2>Nowy gość</h2>
-    <form id="form" autocomplete="off">
-      <div class="row">
-        <div><label for="firstName">Imię *</label><input id="firstName" required maxlength="80"></div>
-        <div><label for="lastName">Nazwisko *</label><input id="lastName" required maxlength="80"></div>
-      </div>
-      <label for="email">E-mail (tu trafi kod QR) *</label><input id="email" type="email" required maxlength="200">
-      <div class="row">
-        <div><label for="phone">Telefon</label><input id="phone" type="tel" maxlength="40"></div>
-        <div><label for="company">Firma</label><input id="company" maxlength="120"></div>
-      </div>
-      <label for="hostName">Osoba przyjmująca</label><input id="hostName" maxlength="120">
-      <label for="profile">Strefa dostępu *</label><select id="profile" required></select>
-      <div class="sub" id="profileDesc" style="font-size:12px;color:var(--muted);margin-top:4px"></div>
-      <div class="row">
-        <div><label for="from">Od *</label><input id="from" type="datetime-local" required></div>
-        <div><label for="to">Do *</label><input id="to" type="datetime-local" required></div>
-      </div>
-      <button class="primary" type="submit" id="submit">Zarejestruj i wyślij kod QR</button>
-      <div id="msg" class="msg"></div>
-    </form>
-  </section>
-  <section class="card">
-    <div class="toolbar">
-      <h2 style="margin:0;flex:1">Wizyty</h2>
-      <input id="filter" placeholder="Szukaj (nazwisko, firma, e-mail)…">
-      <button class="small" id="refresh">Odśwież</button>
+<div class="shell" id="shell" hidden>
+  <aside class="side">
+    <div class="brand"><picture><source srcset="logo-light.svg" media="(prefers-color-scheme: dark)"><img src="logo.svg" width="28" height="28" alt=""></picture><div>GuestPass<small id="siteName"></small></div></div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <div class="c4state" id="c4state" title=""><span class="dot"></span><span>C4: sprawdzanie…</span></div>
+      <button class="me" id="meBtn" aria-haspopup="menu"></button>
     </div>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Gość</th><th>Termin</th><th>Strefa</th><th>Status</th><th>Kod</th><th></th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
-  </section>
-</main>
-<dialog id="qrDialog">
-  <h3 id="qrTitle"></h3>
-  <img id="qrImg" alt="Kod QR">
-  <p class="sub" style="color:var(--muted)">Podgląd dla recepcji – gość otrzymał ten kod e-mailem.</p>
-  <form method="dialog"><button>Zamknij</button></form>
-</dialog>
+  </aside>
+  <main id="view"></main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 <script src="app.js"></script>
 </body></html>

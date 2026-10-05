@@ -1,22 +1,54 @@
 <!doctype html>
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>C4 GuestPass – logowanie</title><link rel="stylesheet" href="app.css"></head>
+<title>Logowanie · GuestPass</title><link rel="icon" href="logo.svg"><link rel="stylesheet" href="app.css"></head>
 <body>
-<div class="card login">
-  <h2>C4 GuestPass – recepcja</h2>
-  <form id="f">
-    <label for="login">Login</label><input id="login" autocomplete="username" required autofocus>
-    <label for="password">Hasło</label><input id="password" type="password" autocomplete="current-password" required>
-    <button class="primary" type="submit">Zaloguj</button>
-    <div id="msg" class="msg bad"></div>
-  </form>
+<div class="auth">
+  <section class="pitch">
+    <div class="brand"><img src="logo-light.svg" width="28" height="28" alt=""><div>GuestPass<small>dla Gamanet C4</small></div></div>
+    <svg class="qrart" id="qrart" width="560" height="560" viewBox="0 0 28 28" aria-hidden="true"></svg>
+    <h1>Goście wchodzą <em>kodem QR</em>.<br>Bez plastikowych kart.</h1>
+    <p>Zaproszenie wysłane z biura trafia do gościa e-mailem. Kod otwiera tylko przydzielone strefy i tylko na czas wizyty — potem znika z systemu kontroli dostępu.</p>
+    <div class="steps">
+      <div><b>01</b>Firma zaprasza gościa</div>
+      <div><b>02</b>Gość dostaje kod QR</div>
+      <div><b>03</b>C4 wpuszcza go o czasie</div>
+    </div>
+  </section>
+  <section class="form">
+    <div>
+      <h2>Zaloguj się</h2>
+      <p class="lead">Konto otrzymasz od administratora swojej firmy.</p>
+      <form id="f" novalidate>
+        <div id="err" class="form-error" hidden></div>
+        <div class="field"><label for="login">Login</label><input class="input" id="login" autocomplete="username" required autofocus></div>
+        <div class="field"><label for="password">Hasło</label><input class="input" id="password" type="password" autocomplete="current-password" required></div>
+        <button class="btn primary" type="submit" id="go">Zaloguj</button>
+      </form>
+    </div>
+  </section>
 </div>
 <script>
+(() => { // dekoracyjny „kod” – deterministyczny wzór, nie prawdziwy QR
+  const s = document.getElementById('qrart'); let x = 7, out = '';
+  const finder = (a, b) => `<path d="M${a} ${b}h7v7h-7zM${a+1} ${b+1}v5h5v-5z M${a+2} ${b+2}h3v3h-3z" fill="#fff" fill-rule="evenodd"/>`;
+  out += finder(0, 0) + finder(21, 0) + finder(0, 21);
+  for (let i = 0; i < 28; i++) for (let j = 0; j < 28; j++) {
+    if ((i < 8 && j < 8) || (i > 19 && j < 8) || (i < 8 && j > 19)) continue;
+    x = (x * 1103515245 + 12345) & 0x7fffffff; if (x % 7 < 3) out += `<rect x="${i}" y="${j}" width="1" height="1" fill="#fff"/>`;
+  }
+  s.innerHTML = out;
+})();
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
-  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'fetch'},
-    body: JSON.stringify({login: login.value, password: password.value})});
-  if (r.ok) location.href = '/'; else { msg.textContent = 'Nieprawidłowy login lub hasło.'; msg.classList.add('show'); }
+  const err = document.getElementById('err'), go = document.getElementById('go');
+  go.disabled = true; err.hidden = true;
+  try {
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'fetch' },
+      body: JSON.stringify({ login: login.value, password: password.value }) });
+    if (r.ok) { location.href = '/'; return; }
+    err.textContent = r.status === 401 ? 'Nieprawidłowy login lub hasło albo konto jest zablokowane.' : 'Błąd serwera (' + r.status + ').';
+  } catch { err.textContent = 'Brak połączenia z serwerem.'; }
+  err.hidden = false; go.disabled = false; password.select();
 });
 </script>
 </body></html>

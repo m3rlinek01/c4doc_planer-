@@ -1,0 +1,27 @@
+# Reverse proxy z automatycznym HTTPS dla C4 GuestPass (docker compose --profile https up -d).
+# GUESTPASS_DOMAIN i ACME_EMAIL ustawia się w deploy/.env.
+#
+# Domena publiczna -> certyfikat Let's Encrypt (porty 80/443 muszą być osiągalne z internetu).
+# Sieć wewnętrzna bez dostępu z zewnątrz -> zamiast tego "tls internal" (CA Caddy, certyfikat
+# root z wolumenu caddy-data trzeba wdrożyć na stacjach recepcji) albo własny certyfikat:
+#   tls /etc/caddy/certs/guestpass.crt /etc/caddy/certs/guestpass.key
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$GUESTPASS_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# tls internal
+
+	reverse_proxy app:8080
+}

@@ -16,6 +16,8 @@ public interface IVisitStore
     Task<int> CountOverlappingAsync(Guid companyId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct = default);
     /// <summary>Czy kod jest używany przez wizytę, która nie została jeszcze zakończona (unikalność w C4).</summary>
     Task<bool> IsCodeInUseAsync(string code, CancellationToken ct = default);
+    /// <summary>RODO: usuwa zakończone wizyty, których koniec był przed <paramref name="before"/>. Zwraca liczbę usuniętych.</summary>
+    Task<int> PurgeFinishedAsync(DateTimeOffset before, CancellationToken ct = default);
 }
 
 public sealed class SqliteVisitStore(Database db) : IVisitStore
@@ -67,6 +69,15 @@ public sealed class SqliteVisitStore(Database db) : IVisitStore
 
     public async Task<bool> IsCodeInUseAsync(string code, CancellationToken ct = default) =>
         (await QueryAsync("SELECT * FROM visits WHERE access_code=$code AND status IN (0,1)", ct, ("$code", code))).Count > 0;
+
+    public async Task<int> PurgeFinishedAsync(DateTimeOffset before, CancellationToken ct = default)
+    {
+        await using var c = db.Open();
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "DELETE FROM visits WHERE status IN (2,3) AND valid_to < $before";
+        cmd.Parameters.AddWithValue("$before", D(before));
+        return await cmd.ExecuteNonQueryAsync(ct);
+    }
 
     private async Task<IReadOnlyList<Visit>> QueryAsync(string sql, CancellationToken ct, params (string, object)[] ps)
     {

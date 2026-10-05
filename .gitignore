@@ -1,0 +1,43 @@
+# --- .NET build ---
+bin/
+obj/
+publish/
+artifacts/
+*.user
+*.suo
+*.userprefs
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*~
+
+# --- testy ---
+TestResults/
+coverage*.xml
+*.coverage
+
+# --- dane runtime (SQLite, poczta w trybie Pickup) ---
+# Uwaga: ścieżki zakotwiczone celowo – samo "data/" przy core.ignorecase=true (Windows/macOS)
+# ukryłoby katalog z kodem src/C4GuestPass.Web/Data/.
+/data/
+/src/C4GuestPass.Web/data/
+/tests/C4GuestPass.Tests/data/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# --- lokalna konfiguracja produkcyjna / sekrety ---
+appsettings.Production.json
+appsettings.*.local.json
+deploy/.env
+
+# --- inne ---
+node_modules/
+.DS_Store
+Thumbs.db
+logs/

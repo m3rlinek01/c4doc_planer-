@@ -81,6 +81,19 @@ public sealed class VisitServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Finished_visits_are_purged_after_retention_period()
+    {
+        var v = await _svc.CreateAsync(Req(0), _me, default);
+        await _svc.RevokeAsync(v, default);
+        _clock.Advance(TimeSpan.FromDays(89));
+        await _svc.RunCycleAsync(default);
+        Assert.NotNull(await _store.GetAsync(v.Id));
+        _clock.Advance(TimeSpan.FromDays(2));
+        await _svc.RunCycleAsync(default);
+        Assert.Null(await _store.GetAsync(v.Id));
+    }
+
+    [Fact]
     public async Task Checkout_removes_access_immediately()
     {
         var v = await _svc.CreateAsync(Req(0), _me, default);

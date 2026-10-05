@@ -1,0 +1,24 @@
+# Kontekst budowania = katalog główny repozytorium (docker build -f deploy/Dockerfile .)
+.git
+.gitignore
+.dockerignore
+.vs
+.vscode
+.idea
+**/bin
+**/obj
+data
+src/C4GuestPass.Web/data
+**/publish
+**/TestResults
+**/node_modules
+**/*.user
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/appsettings.Production.json
+**/logs
+tests
+docs
+deploy
+*.md

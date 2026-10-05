@@ -20,6 +20,7 @@ public sealed class ApiTests : IDisposable
             b.UseSetting("GuestPass:DatabasePath", Path.Combine(_dir, "t.db"));
             b.UseSetting("Mail:PickupDirectory", Path.Combine(_dir, "mail"));
             b.UseSetting("Bootstrap:AdminPassword", AdminPwd);
+            b.UseSetting("GuestPass:SecureCookies", "false");
         });
     }
 

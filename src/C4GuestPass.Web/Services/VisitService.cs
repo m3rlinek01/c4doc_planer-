@@ -129,6 +129,11 @@ public sealed class VisitService(
             try { await DeprovisionAsync(v, VisitStatus.Expired, ct); }
             catch (Exception) { /* zalogowane, ponowienie w następnym cyklu */ }
         }
+        if (_app.RetentionDays > 0)
+        {
+            var purged = await store.PurgeFinishedAsync(clock.GetUtcNow().AddDays(-_app.RetentionDays), ct);
+            if (purged > 0) log.LogInformation("RODO: usunięto dane {Count} zakończonych wizyt starszych niż {Days} dni", purged, _app.RetentionDays);
+        }
     }
 
     internal bool IsInActivationWindow(Visit v) =>

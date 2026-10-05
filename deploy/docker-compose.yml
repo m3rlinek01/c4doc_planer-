@@ -1,0 +1,87 @@
+# C4 GuestPass – uruchomienie w Dockerze.
+#
+#   cd deploy
+#   cp .env.example .env                                              # sekrety i wersja SDK
+#   cp appsettings.Production.example.json appsettings.Production.json  # strefy, SMTP, serwer C4
+#   docker compose up -d --build                                      # sama aplikacja na :8080
+#   docker compose --profile https up -d --build                      # + Caddy z HTTPS (Let's Encrypt / CA wewn.)
+#
+# Hasło startowe administratora (gdy Bootstrap__AdminPassword puste): docker compose logs app | grep -i "hasło"
+
+name: c4guestpass
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+      args:
+        C4_SDK_VERSION: ${C4_SDK_VERSION:-None}           # None | 2024 | 2026
+        C4_SDK_PACKAGE_VERSION: ${C4_SDK_PACKAGE_VERSION:-}
+      # Feed Gamanet z logowaniem: odkomentuj i wskaż nuget.config z poświadczeniami.
+      # secrets:
+      #   - nuget_config
+    image: c4guestpass:${C4_SDK_VERSION:-None}
+    restart: unless-stopped
+    ports:
+      # Bez reverse proxy wystawiamy port bezpośrednio. Z profilem "https" zmień na "127.0.0.1:8080:8080"
+      # albo usuń – Caddy łączy się z aplikacją po sieci wewnętrznej.
+      - "${APP_PORT:-8080}:8080"
+    # Kolejność konfiguracji: appsettings.json < appsettings.Production.json < zmienne środowiskowe.
+    # Zmienna ustawiona tutaj (nawet pusta!) WYGRYWA z plikiem JSON – dlatego tu trafiają tylko sekrety,
+    # a cała reszta (strefy, serwer C4, SMTP) jest w appsettings.Production.json.
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Za reverse proxy: uwzględnij X-Forwarded-Proto/For (schemat https -> ciasteczko Secure, IP klienta w logach).
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+      TZ: Europe/Warsaw
+
+      # --- sekrety (z deploy/.env) – w appsettings.Production.json zostaw je puste ---
+      C4__Password: ${C4_PASSWORD:-}
+      Mail__Password: ${MAIL_PASSWORD:-}
+      Bootstrap__AdminPassword: ${BOOTSTRAP_ADMIN_PASSWORD:-}   # puste = losowe hasło tymczasowe w logu
+
+      # --- opcjonalne nadpisania (odkomentuj tylko, jeśli NIE chcesz trzymać tego w JSON) ---
+      # C4__Mode: SimpleClient
+      # C4__ServerUri: https://c4server.firma.local
+      # C4__User: svc-guestpass
+      # Mail__Mode: Smtp
+      # Mail__Host: smtp.firma.pl
+      # Mail__User: guestpass@firma.pl
+      # GuestPass__SiteName: Recepcja
+      # Bootstrap__SeedDemoData: "false"
+    volumes:
+      - guestpass-data:/app/data                           # baza SQLite + poczta w trybie Pickup
+      - guestpass-keys:/home/app/.aspnet/DataProtection-Keys
+      # Plik musi istnieć przed startem (inaczej Docker utworzy w tym miejscu pusty katalog).
+      - ./appsettings.Production.json:/app/appsettings.Production.json:ro
+    # extra_hosts:
+    #   - "c4server.firma.local:10.0.10.5"                 # gdy kontener nie rozwiązuje nazw z wewnętrznego DNS
+
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      GUESTPASS_DOMAIN: ${GUESTPASS_DOMAIN:-guestpass.localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  guestpass-data:
+  guestpass-keys:
+  caddy-data:
+  caddy-config:
+
+# secrets:
+#   nuget_config:
+#     file: ${HOME}/.nuget/NuGet/NuGet.Config

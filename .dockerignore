@@ -21,4 +21,8 @@ src/C4GuestPass.Web/data
 tests
 docs
 deploy
+# wyjątek: pakiety Gamanet C4 SDK przygotowane przez deploy/prepare-c4-sdk.ps1
+!deploy/c4-sdk
 *.md
+dist
+publish-*

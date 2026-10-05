@@ -37,6 +37,7 @@ services:
       TZ: Europe/Warsaw
 
       # --- sekrety (z deploy/.env) – w appsettings.Production.json zostaw je puste ---
+      # Połączenie z C4 można też ustawić w przeglądarce (Konfiguracja C4 → Połączenie z C4) – wtedy C4_PASSWORD zostaw puste.
       C4__Password: ${C4_PASSWORD:-}
       Mail__Password: ${MAIL_PASSWORD:-}
       Bootstrap__AdminPassword: ${BOOTSTRAP_ADMIN_PASSWORD:-}   # puste = losowe hasło tymczasowe w logu
@@ -51,8 +52,7 @@ services:
       # GuestPass__SiteName: Recepcja
       # Bootstrap__SeedDemoData: "false"
     volumes:
-      - guestpass-data:/app/data                           # baza SQLite + poczta w trybie Pickup
-      - guestpass-keys:/home/app/.aspnet/DataProtection-Keys
+      - guestpass-data:/app/data                           # baza SQLite, klucze szyfrujące (keys/), poczta w trybie Pickup
       # Plik musi istnieć przed startem (inaczej Docker utworzy w tym miejscu pusty katalog).
       - ./appsettings.Production.json:/app/appsettings.Production.json:ro
     # extra_hosts:
@@ -78,7 +78,6 @@ services:
 
 volumes:
   guestpass-data:
-  guestpass-keys:
   caddy-data:
   caddy-config:
 

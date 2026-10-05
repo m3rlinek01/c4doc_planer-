@@ -11,8 +11,12 @@ Recepcja widzi listę gości i rejestruje wejścia/wyjścia.
 - unieważnienie zaproszenia albo wymeldowanie gościa natychmiast usuwa osobę i identyfikator z C4,
 - .NET 8 / ASP.NET Core, SQLite, bez zewnętrznych zależności w trybie demo (symulacja C4, poczta do plików `.eml`).
 
-Szczegółowa analiza (model danych C4, czytniki QR, formaty kodów, ryzyka, alternatywy):
-**[docs/ANALIZA.md](docs/ANALIZA.md)**.
+Dokumentacja:
+
+- **[Wdrożenie na serwerze Linux](docs/WDROZENIE-LINUX.md)** – paczka z C4 SDK, instalator (systemd + HTTPS), połączenie z C4 ustawiane w przeglądarce.
+- **[Instrukcja administratora budynku](docs/INSTRUKCJA-ADMINISTRATORA.md)** – konfiguracja C4 w aplikacji (wybór z list, bez GUID-ów), firmy, konta, rozwiązywanie problemów.
+- **[Integracja z C4 2024 – opis techniczny](docs/INTEGRACJA-C4-2024.md)** – budowanie z SDK 21, jak aplikacja zakłada gościa, poziom dostępu i kartę w C4, test po wdrożeniu.
+- **[Analiza](docs/ANALIZA.md)** – model danych C4, czytniki QR, formaty kodów, ryzyka, alternatywy.
 
 ![Lista wizyt](docs/ui.png)
 ![Zaproszenie z kodem QR](docs/ui-qr.png)
@@ -26,7 +30,7 @@ Szczegółowa analiza (model danych C4, czytniki QR, formaty kodów, ryzyka, alt
 3. [Przygotowanie po stronie C4](#przygotowanie-po-stronie-c4)
 4. [Konfiguracja](#konfiguracja)
 5. [Role](#role)
-6. [Wdrożenie](#wdrożenie) – [Docker](#docker), [IIS](#iis-windows-server), [usługa Windows](#usługa-windows)
+6. [Wdrożenie](#wdrożenie) – [Linux (zalecane)](#linux-serwer-zdalny), [Docker](#docker), [IIS](#iis-windows-server), [usługa Windows](#usługa-windows)
 7. [Testy](#testy)
 8. [Struktura projektu](#struktura-projektu)
 9. [Bezpieczeństwo](#bezpieczeństwo)
@@ -75,7 +79,15 @@ dotnet build -p:C4SdkVersion=2024 -p:C4SdkPackageVersion=2024.0.0.512
 Ten sam przełącznik obowiązuje dla `dotnet publish`, obrazu Docker (`--build-arg C4_SDK_VERSION=2024`)
 i skryptu Windows (`-C4SdkVersion 2024`).
 
-Wymagania:
+**C4 2024 (serwer 21.0) – sprawdzone.** Wariant `2024` bierze pakiet `Gamanet.C4.SimpleClient` **21.0.10657.17457**
+z lokalnej instalacji C4 SDK (`C:\Program Files (x86)\Gamanet\C4 SDK`; inny katalog: `-p:C4SdkLocalFeed=...`),
+bez feedu online. SDK jest skompilowane pod .NET Framework 4.6.1, ale to czysty kod zarządzany bez zależności
+od Windows – działa w .NET 8 **na Windows i na Linuksie** (sprawdzone: Ubuntu 24.04 ↔ C4 21.0), łącząc się z serwerem C4
+przez HTTPS. Konektory SDK są kopiowane do `Connectors/` obok aplikacji.
+Paczkę dla Linuksa buduje `deploy\build-linux.ps1` – patrz [Wdrożenie na Linuksie](docs/WDROZENIE-LINUX.md).
+`C4:ServerUri` to adres **bez** `/c4` (np. `https://c4server.firma.local`) – SDK dokleja ścieżkę samo.
+
+Wymagania (wariant `2026`):
 
 - **licencja deweloperska Gamanet** i dostęp do feedu NuGet **`https://nugets.c4portal.com/nuget`**
   (dodawany automatycznie przez `RestoreAdditionalProjectSources`; inny adres: `-p:C4NuGetFeed=...`),
@@ -85,27 +97,28 @@ Wymagania:
 - w konfiguracji `C4:Mode = SimpleClient`. Aplikacja zbudowana bez SDK, a uruchomiona z `Mode = SimpleClient`,
   zatrzyma się przy starcie z czytelnym komunikatem.
 
-> **Do zweryfikowania przy pierwszym uruchomieniu na realnym C4.** Cały kod zależny od SDK jest w jednym pliku
-> `src/C4GuestPass.Web/C4/SimpleClientC4Gateway.cs`. Miejsca oznaczone `VERIFY` (pola osoby, klasa i repozytorium
-> identyfikatora, `Delete(Guid)` vs `Delete(entity)`) trzeba potwierdzić w dokumentacji SDK danej wersji –
-> patrz `docs/ANALIZA.md`. Stan połączenia sprawdza endpoint `GET /api/health` (po zalogowaniu).
+> **C4 2024 – zweryfikowane na serwerze 21.0.** Cały kod zależny od SDK jest w jednym pliku
+> `src/C4GuestPass.Web/C4/SimpleClientC4Gateway.cs`; szczegóły (osoba, poziom dostępu przez `PersonRef`, karta,
+> usuwanie) w [docs/INTEGRACJA-C4-2024.md](docs/INTEGRACJA-C4-2024.md). Wariant 2026 nie był testowany.
+> Stan połączenia sprawdza endpoint `GET /api/health` (po zalogowaniu).
 
 ---
 
 ## Przygotowanie po stronie C4
 
-Aplikacja **nie nadaje uprawnień do drzwi** – jedynie tworzy osobę w odpowiednim folderze i przypisuje jej
-identyfikator. Uprawnienia dziedziczone z folderu przygotowuje administrator C4:
+Aplikacja zakłada gościa w folderze osób, przypisuje mu **poziomy dostępu** C4 i identyfikator z kodem QR.
+Samych poziomów dostępu (które drzwi, w jakich godzinach) nie tworzy – przygotowuje je administrator C4:
 
-1. **Foldery osób – jeden na strefę (profil dostępu).** Np. `Goście/Hol`, `Goście/Piętro 2`, `Goście/Parking`.
-   Na każdym folderze zdefiniuj uprawnienia do odpowiednich drzwi / grup drzwi (i ewentualnie harmonogram).
-   Identyfikator (GUID) folderu wpisz jako `C4PersonFolderId` w `C4:AccessProfiles`.
-   Gdy firma potrzebuje osobnego folderu (np. `Goście/ACME/Piętro 2` z dostępem do jej drzwi), administrator
-   budynku ustawia go w aplikacji przy strefie firmy – nadpisuje on folder domyślny profilu.
+1. **Foldery osób dla gości** (np. `Goście/Hol`, `Goście/Parking`) oraz **poziomy dostępu** (np. `visitor`)
+   z przypisanymi drzwiami. C4 nie pozwala przypiąć poziomu dostępu do folderu – aplikacja przypisuje go
+   każdemu gościowi osobno i zdejmuje razem z usunięciem gościa.
+   Wszystko to wybiera się potem z list w aplikacji: **Konfiguracja C4** (administrator budynku) – rodzaj
+   identyfikatora i typ karty, poziomy dostępu dla każdego gościa, strefy (folder + dodatkowe poziomy dostępu).
+   Gdy firma potrzebuje osobnego folderu (np. `Goście/ACME`), wybiera się go przy strefie firmy w zakładce *Firmy*.
 2. **Konto techniczne (operator) dla aplikacji**, np. `svc-guestpass`: prawo tworzenia, edycji i usuwania osób
    oraz identyfikatorów **tylko w folderach gości**. Bez uprawnień administracyjnych do konfiguracji systemu.
-3. **Typ identyfikatora** zgodny z tym, co wysyła czytnik: zwykle numer karty (`C4:CredentialType = Card`);
-   dla czytników przekazujących kod jako PIN – odpowiednio `PIN`.
+3. **Typ identyfikatora** zgodny z tym, co wysyła czytnik: zwykle numer karty (włączony typ karty w C4,
+   np. 48-bitowy dla 12-cyfrowego kodu); dla czytników przekazujących kod jako PIN – PIN. Wybór w *Konfiguracji C4*.
 4. **Czytniki QR** przy drzwiach objętych strefami gości, np. **2N Access Unit QR** albo inne czytniki
    QR z wyjściem Wiegand / OSDP podłączone do kontrolerów C4. Czytnik dekoduje tekst z QR i przekazuje
    liczbę do kontrolera jak numer karty. Sprawdź:
@@ -153,9 +166,8 @@ w usłudze Windows i w IIS podawaj ścieżki bezwzględne.
 | `ServerUri` | – | Adres serwera C4, np. `https://c4server.firma.local`. |
 | `User` | – | Operator techniczny C4 (minimalne uprawnienia, patrz wyżej). |
 | `Password` | – | Hasło operatora – **tylko** przez zmienną `C4__Password` / sekret, nie w repozytorium. |
-| `Connector` | `Http` | `Http` albo `Tcp`. |
-| `CredentialType` | `Card` | Typ identyfikatora, pod którym zapisywany jest kod z QR (`Card`, `PIN`). |
-| `AccessProfiles[]` | – | Strefy do wyboru w UI: `Id` (stały klucz, zapisywany w wizytach – nie zmieniaj po starcie), `Name`, `C4PersonFolderId` (GUID folderu osób w C4), `Description`. |
+| `Connector` | `Http` | Nieużywane od SDK 21 (C4 2024) – jedynym konektorem jest REST. |
+| `CredentialType`, `CardTypeId`, `AccessLevelIds[]`, `AccessProfiles[]` | – | **Tylko wartości startowe.** Rodzaj identyfikatora, typ karty, poziomy dostępu dla każdego gościa i strefy ustawia administrator budynku w aplikacji (*Konfiguracja C4*, wybór z list pobranych z C4). Po pierwszym zapisie w aplikacji obowiązują ustawienia z bazy, a te klucze są ignorowane. |
 
 ### `Mail`
 
@@ -201,12 +213,32 @@ Pliki wdrożeniowe:
 
 | Plik | Do czego |
 |---|---|
+| `deploy/build-linux.ps1` | paczka `.tar.gz` dla serwera Linux (samodzielna, z C4 SDK) |
+| `deploy/linux/install.sh` | instalator na serwerze: usługa systemd, katalogi, opcjonalnie Caddy z HTTPS |
+| `deploy/linux/c4guestpass.service`, `c4guestpass.env.example`, `nginx.conf` | usługa systemd, wzór konfiguracji, wzór dla istniejącego nginx |
+| `deploy/prepare-c4-sdk.ps1` | kopiuje pakiety C4 SDK do `deploy/c4-sdk/` (do budowania obrazu Docker z C4 2024) |
 | `deploy/Dockerfile` | obraz Linux (multi-stage SDK → aspnet:8.0, użytkownik bez roota, port 8080) |
 | `deploy/docker-compose.yml` | aplikacja + opcjonalny Caddy z HTTPS (profil `https`) |
 | `deploy/Caddyfile` | konfiguracja reverse proxy |
 | `deploy/.env.example` | wersja SDK i sekrety dla `docker compose` |
 | `deploy/appsettings.Production.example.json` | pełny przykład konfiguracji produkcyjnej |
 | `deploy/windows/install-service.ps1`, `uninstall-service.ps1` | usługa Windows (wymaga zmiany w kodzie – patrz niżej) |
+
+### Linux (serwer zdalny)
+
+Zalecany sposób: program na serwerze Linux, obsługa wyłącznie przez przeglądarkę, połączenie z C4 przez sieć.
+Krok po kroku: **[docs/WDROZENIE-LINUX.md](docs/WDROZENIE-LINUX.md)**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File deploy\build-linux.ps1          # Windows z C4 SDK -> dist\c4guestpass-linux-x64.tar.gz
+```
+```bash
+tar xzf c4guestpass-linux-x64.tar.gz && cd c4guestpass-linux-x64
+sudo bash install.sh --domain guestpass.firma.pl                       # usługa systemd + Caddy z HTTPS
+```
+
+Adres serwera C4, login i hasło ustawia potem administrator budynku w **Konfiguracja C4 → Połączenie z C4**.
+Hasło jest zapisywane w bazie w postaci zaszyfrowanej.
 
 ### Docker
 
@@ -366,5 +398,6 @@ C4GuestPass.sln
 - **Dane osobowe (RODO):** baza zawiera imiona, nazwiska, e-maile i telefony gości. Zakończone wizyty są
   usuwane automatycznie po `GuestPass:RetentionDays` dniach (domyślnie 90; 0 = wyłączone). Zabezpiecz też
   kopie zapasowe katalogu `data/` – kopie podlegają tej samej retencji.
-- **Klucze Data Protection** (szyfrują ciasteczka) trzymaj trwale: wolumen `guestpass-keys` w Dockerze,
-  `loadUserProfile=true` w IIS.
+- **Klucze Data Protection** (szyfrują ciasteczka i hasło C4 zapisane w aplikacji) są w katalogu `keys/` obok bazy
+  (`GuestPass:KeysDirectory`, aby zmienić). Na Windows są dodatkowo chronione DPAPI maszyny, na Linuksie prawami katalogu (`700`).
+  Kopia zapasowa musi obejmować bazę **i** `keys/`.

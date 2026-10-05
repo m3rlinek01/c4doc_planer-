@@ -8,6 +8,7 @@ using C4GuestPass.Domain;
 using C4GuestPass.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
@@ -21,6 +22,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         ? AppContext.BaseDirectory : default,
 });
 builder.Host.UseWindowsService(o => o.ServiceName = "C4GuestPass");
+builder.Host.UseSystemd();   // Linux: powiadomienie systemd o starcie (Type=notify) i logi w formacie journald; poza systemd nic nie robi
 var services = builder.Services;
 
 services.Configure<C4Options>(builder.Configuration.GetSection(C4Options.Section));
@@ -32,15 +34,28 @@ var contentRoot = builder.Environment.ContentRootPath;
 services.PostConfigure<GuestPassOptions>(o => o.DatabasePath = Path.GetFullPath(o.DatabasePath, contentRoot));
 services.PostConfigure<MailOptions>(o => o.PickupDirectory = Path.GetFullPath(o.PickupDirectory, contentRoot));
 
+// Klucze Data Protection (ciasteczka logowania, zaszyfrowane hasło C4 w bazie) trzymamy obok bazy – przeżywają restart
+// usługi/kontenera i przeniesienie katalogu danych na nowy serwer. Na Linuksie chroni je tylko prawo dostępu do katalogu
+// (instalator ustawia 700); na Windows dodatkowo DPAPI maszyny.
+var dataDir = Path.GetDirectoryName(Path.GetFullPath(
+    builder.Configuration[$"{GuestPassOptions.Section}:{nameof(GuestPassOptions.DatabasePath)}"] ?? new GuestPassOptions().DatabasePath, contentRoot))!;
+var keysDir = Path.GetFullPath(builder.Configuration[$"{GuestPassOptions.Section}:{nameof(GuestPassOptions.KeysDirectory)}"] ?? Path.Combine(dataDir, "keys"), contentRoot);
+var dataProtection = services.AddDataProtection().SetApplicationName("C4GuestPass").PersistKeysToFileSystem(Directory.CreateDirectory(keysDir));
+if (OperatingSystem.IsWindows()) dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+
 services.AddSingleton(TimeProvider.System);
 services.AddSingleton<Database>();
 services.AddSingleton<IVisitStore, SqliteVisitStore>();
 services.AddSingleton<ITenancyStore, SqliteTenancyStore>();
+services.AddSingleton<ISettingsStore, SqliteSettingsStore>();
 services.AddSingleton<AccessCodeGenerator>();
 services.AddSingleton<QrRenderer>();
 services.AddSingleton<IGuestMailer, GuestMailer>();
 services.AddScoped<UserService>();
 services.AddScoped<VisitService>();
+services.AddScoped<ConfigService>();
+services.AddScoped<C4ConnectionService>();
+services.AddSingleton<C4ConnectionProvider>();
 services.AddHostedService<ProvisioningWorker>();
 
 var appCfg = builder.Configuration.GetSection(GuestPassOptions.Section).Get<GuestPassOptions>() ?? new();
@@ -210,8 +225,7 @@ secured.MapPost("/me/password", async (ChangePasswordRequest r, HttpContext ctx,
 
 // ---------- słowniki ----------
 
-secured.MapGet("/zones", (IOptions<C4Options> o) =>
-    o.Value.AccessProfiles.Select(p => new { p.Id, p.Name, p.Description }));
+secured.MapGet("/zones", async (ISettingsStore settings, CancellationToken ct) => await settings.GetZonesAsync(ct));
 
 secured.MapGet("/companies", async (HttpContext ctx, UserService users, CancellationToken ct) =>
     (await users.ListCompaniesAsync(Me(ctx), ct)).Select(CompanyDto.From));
@@ -222,7 +236,43 @@ secured.MapPost("/companies", async (CompanyRequest r, HttpContext ctx, UserServ
 secured.MapPut("/companies/{id:guid}", async (Guid id, CompanyRequest r, HttpContext ctx, UserService users, CancellationToken ct) =>
     CompanyDto.From(await users.SaveCompanyAsync(Me(ctx), id, r, ct)));
 
-secured.MapGet("/health", async (IC4Gateway c4, CancellationToken ct) => await c4.CheckAsync(ct));
+secured.MapGet("/health", async (IC4Gateway c4, ISettingsStore settings, CancellationToken ct) =>
+    await c4.CheckAsync(await settings.GetZonesAsync(ct), (await settings.GetC4Async(ct)).AccessLevelIds, ct));
+
+// ---------- konfiguracja C4 (administrator budynku) ----------
+
+secured.MapGet("/c4/catalog", async (HttpContext ctx, IC4Gateway c4, CancellationToken ct) =>
+{
+    if (!Me(ctx).IsBuildingAdmin) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    try { return Results.Ok(await c4.GetCatalogAsync(ct)); }
+    catch (Exception ex) { return Results.Json(new { error = "Nie udało się pobrać danych z C4: " + ex.Message }, statusCode: 502); }
+});
+
+secured.MapGet("/settings/c4", async (HttpContext ctx, ISettingsStore settings, CancellationToken ct) =>
+    Me(ctx).IsBuildingAdmin ? Results.Ok(await settings.GetC4Async(ct)) : Results.StatusCode(StatusCodes.Status403Forbidden));
+
+secured.MapPut("/settings/c4", async (C4SettingsRequest r, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
+    await cfg.SaveC4Async(Me(ctx), r, ct));
+
+secured.MapGet("/settings/c4/connection", (HttpContext ctx, C4ConnectionService conn) => conn.Get(Me(ctx)));
+
+secured.MapPut("/settings/c4/connection", async (C4ConnectionRequest r, HttpContext ctx, C4ConnectionService conn, CancellationToken ct) =>
+    await conn.SaveAsync(Me(ctx), r, ct));
+
+secured.MapPost("/settings/c4/connection/test", async (C4ConnectionRequest r, HttpContext ctx, C4ConnectionService conn, CancellationToken ct) =>
+    await conn.TestAsync(Me(ctx), r, ct));
+
+secured.MapPost("/zones", async (ZoneRequest r, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
+    await cfg.SaveZoneAsync(Me(ctx), null, r, ct));
+
+secured.MapPut("/zones/{id}", async (string id, ZoneRequest r, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
+    await cfg.SaveZoneAsync(Me(ctx), id, r, ct));
+
+secured.MapDelete("/zones/{id}", async (string id, HttpContext ctx, ConfigService cfg, CancellationToken ct) =>
+{
+    await cfg.DeleteZoneAsync(Me(ctx), id, ct);
+    return Results.NoContent();
+});
 
 // ---------- użytkownicy ----------
 

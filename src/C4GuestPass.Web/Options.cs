@@ -9,20 +9,29 @@ public sealed class C4Options
     /// <summary>Mock = bez serwera C4 (demo). SimpleClient = prawdziwe połączenie przez Gamanet Simple Client SDK.</summary>
     public C4GatewayMode Mode { get; set; } = C4GatewayMode.Mock;
 
-    /// <summary>Adres serwera C4 dla Simple Client, np. https://c4server.firma.local</summary>
+    /// <summary>
+    /// Adres serwera C4 dla Simple Client, np. https://c4server.firma.local. ServerUri/User/Password to wartości startowe –
+    /// po zapisaniu połączenia w aplikacji (Konfiguracja C4 → Połączenie z C4) obowiązuje to z bazy.
+    /// </summary>
     public string? ServerUri { get; set; }
     /// <summary>Techniczny operator C4 z prawem tworzenia osób w folderach gości (zasada minimalnych uprawnień).</summary>
     public string? User { get; set; }
     public string? Password { get; set; }
-    /// <summary>Connector Simple Client: Http (domyślny, działa też na Linux) lub Tcp.</summary>
+    /// <summary>Nieużywane od SDK 21 (C4 2024) – jedynym konektorem jest RestClient. Zostawione dla zgodności konfiguracji.</summary>
     public string Connector { get; set; } = "Http";
 
     /// <summary>Typ identyfikatora w C4, pod którym zapisujemy kod QR (zwykle "Card" – czytnik QR wysyła numer jak kartę; dla 2N "PIN").</summary>
     public string CredentialType { get; set; } = "Card";
 
+    /// <summary>Typ karty w C4 dla CredentialType=Card. Puste = pierwszy włączony typ karty (lista w logu, gdy jest ich kilka).</summary>
+    public Guid? CardTypeId { get; set; }
+
+    /// <summary>Poziomy dostępu C4 przypisywane każdemu gościowi (np. "visitor"). Folder osób nie przenosi poziomów dostępu.</summary>
+    public List<Guid> AccessLevelIds { get; set; } = new();
+
     /// <summary>
-    /// Profile dostępu widoczne w UI. Każdy profil = folder osób w drzewie C4, na którym administrator
-    /// zdefiniował uprawnienia do drzwi (dziedziczone przez osoby w folderze).
+    /// Profile dostępu widoczne w UI. Każdy profil = folder osób w drzewie C4, w którym zakładani są goście.
+    /// Uprawnienia do drzwi nadają poziomy dostępu z AccessLevelIds (C4 nie przypina poziomów dostępu do folderu).
     /// </summary>
     public List<AccessProfileOption> AccessProfiles { get; set; } = new();
 }
@@ -42,6 +51,8 @@ public sealed class GuestPassOptions
 
     public string SiteName { get; set; } = "Recepcja";
     public string DatabasePath { get; set; } = "data/guestpass.db";
+    /// <summary>Klucze szyfrujące (sesje, hasło C4 zapisane w aplikacji). Puste = podkatalog keys obok bazy.</summary>
+    public string? KeysDirectory { get; set; }
     /// <summary>Ile minut przed początkiem wizyty uprawnienie staje się aktywne w C4.</summary>
     public int ActivateMinutesBefore { get; set; } = 30;
     /// <summary>Ile minut po końcu wizyty uprawnienie jest jeszcze aktywne.</summary>

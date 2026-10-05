@@ -21,28 +21,37 @@
     <C4NuGetFeed Condition="'$(C4NuGetFeed)' == ''">https://nugets.c4portal.com/nuget</C4NuGetFeed>
   </PropertyGroup>
 
+  <!--
+    C4 2024 = SDK 21.x (wersja serwera C4 21.0). Pakiet Gamanet.C4.SimpleClient zawiera SimpleClient + SimpleInterfaces
+    (net461 – działa w .NET 8 na Windows) oraz konektory w content/Connectors, kopiowane do bin/Connectors.
+    Źródło pakietu: lokalna instalacja C4 SDK (katalog w układzie id/wersja/*.nupkg); inny katalog: -p:C4SdkLocalFeed=...
+  -->
   <PropertyGroup Condition="'$(C4SdkVersion)' == '2024'">
-    <C4SdkPackageVersion Condition="'$(C4SdkPackageVersion)' == ''">2024.*-*</C4SdkPackageVersion>
+    <C4SdkPackageVersion Condition="'$(C4SdkPackageVersion)' == ''">21.0.10657.17457</C4SdkPackageVersion>
+    <C4SdkLocalFeed Condition="'$(C4SdkLocalFeed)' == ''">C:\Program Files (x86)\Gamanet\C4 SDK</C4SdkLocalFeed>
+    <RestoreAdditionalProjectSources>$(C4SdkLocalFeed)</RestoreAdditionalProjectSources>
     <DefineConstants>$(DefineConstants);C4SDK;C4SDK_2024</DefineConstants>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(C4SdkVersion)' == '2026'">
     <C4SdkPackageVersion Condition="'$(C4SdkPackageVersion)' == ''">2026.*-*</C4SdkPackageVersion>
+    <RestoreAdditionalProjectSources>$(C4NuGetFeed)</RestoreAdditionalProjectSources>
     <DefineConstants>$(DefineConstants);C4SDK;C4SDK_2026</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(C4SdkVersion)' != 'None'">
-    <RestoreAdditionalProjectSources>$(C4NuGetFeed)</RestoreAdditionalProjectSources>
-  </PropertyGroup>
+  <ItemGroup Condition="'$(C4SdkVersion)' != 'None'">
+    <PackageReference Include="Gamanet.C4.SimpleClient" Version="$(C4SdkPackageVersion)" GeneratePathProperty="true" NoWarn="NU1701" />
+  </ItemGroup>
 
   <ItemGroup Condition="'$(C4SdkVersion)' != 'None'">
-    <PackageReference Include="Gamanet.C4.SimpleClient" Version="$(C4SdkPackageVersion)" />
-    <PackageReference Include="Gamanet.C4.SimpleInterfaces" Version="$(C4SdkPackageVersion)" />
+    <None Include="$(PkgGamanet_C4_SimpleClient)\content\Connectors\*.dll" Link="Connectors\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="MailKit" Version="4.18.1" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>

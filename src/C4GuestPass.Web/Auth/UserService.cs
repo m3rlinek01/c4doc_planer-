@@ -15,7 +15,7 @@ public sealed record CompanyRequest(string Name, bool Active, int MaxConcurrentG
 /// <summary>Konta, role, firmy oraz reguły "kto może zarządzać kim".</summary>
 public sealed class UserService(
     ITenancyStore store,
-    IOptions<C4Options> c4,
+    ISettingsStore settings,
     IOptions<BootstrapOptions> bootstrap,
     TimeProvider clock,
     ILogger<UserService> log)
@@ -162,7 +162,7 @@ public sealed class UserService(
         if (!me.IsBuildingAdmin) throw new UnauthorizedAccessException();
         if (string.IsNullOrWhiteSpace(r.Name)) throw new ValidationException("Podaj nazwę firmy.");
         if (r.MaxConcurrentGuests < 0) throw new ValidationException("Limit nie może być ujemny.");
-        var known = c4.Value.AccessProfiles.Select(p => p.Id).ToHashSet();
+        var known = (await settings.GetZonesAsync(ct)).Select(z => z.Id).ToHashSet();
         var zones = (r.Zones ?? new()).Where(z => known.Contains(z.ProfileId)).DistinctBy(z => z.ProfileId).ToList();
         if (zones.Count == 0) throw new ValidationException("Przydziel firmie co najmniej jedną strefę.");
 
@@ -195,7 +195,7 @@ public sealed class UserService(
             log.LogWarning("Utworzono konto administratora: login '{Login}', hasło tymczasowe: {Password}", b.AdminLogin, password);
 
         if (!b.SeedDemoData) return;
-        var profiles = c4.Value.AccessProfiles;
+        var profiles = await settings.GetZonesAsync(ct);
         foreach (var (name, count, login) in new[] { ("ACME Logistics", 2, "acme"), ("Nordwave Software", 1, "nordwave") })
         {
             var co = new Company

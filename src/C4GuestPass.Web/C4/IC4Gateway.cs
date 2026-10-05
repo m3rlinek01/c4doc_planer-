@@ -1,3 +1,5 @@
+using C4GuestPass.Domain;
+
 namespace C4GuestPass.C4;
 
 /// <summary>Dane potrzebne do założenia gościa w C4.</summary>
@@ -13,12 +15,25 @@ public sealed record C4GuestRequest(
     Guid C4PersonFolderId,
     string ZoneName,
     DateTimeOffset ValidFrom,
-    DateTimeOffset ValidTo);
+    DateTimeOffset ValidTo,
+    /// <summary>Poziomy dostępu C4 nadawane gościowi (wspólne + strefy).</summary>
+    IReadOnlyList<Guid> AccessLevelIds,
+    /// <summary>"Card" albo "PIN".</summary>
+    string CredentialType,
+    /// <summary>Typ karty dla CredentialType=Card; null = pierwszy włączony w C4.</summary>
+    Guid? CardTypeId);
 
 /// <summary>Uchwyty obiektów utworzonych w C4 (do późniejszego usunięcia).</summary>
 public sealed record C4GuestRef(Guid PersonId, Guid? CredentialId);
 
 public sealed record C4Health(bool Ok, string Mode, string Message);
+
+/// <summary>Element do wyboru w konfiguracji (folder osób ze ścieżką, poziom dostępu, typ karty).</summary>
+public sealed record C4CatalogItem(Guid Id, string Name);
+
+/// <summary>To, co administrator może wybrać w aplikacji zamiast przepisywać identyfikatory GUID z C4.</summary>
+public sealed record C4Catalog(
+    IReadOnlyList<C4CatalogItem> Folders, IReadOnlyList<C4CatalogItem> AccessLevels, IReadOnlyList<C4CatalogItem> CardTypes);
 
 /// <summary>
 /// Jedyny punkt styku aplikacji z Gamanet C4. Cała logika biznesowa (wizyty, QR, mail, wygaszanie)
@@ -32,5 +47,11 @@ public interface IC4Gateway
     /// <summary>Usuwa identyfikator i osobę z C4 (idempotentnie – brak obiektu to nie błąd).</summary>
     Task RemoveGuestAsync(C4GuestRef guest, CancellationToken ct);
 
-    Task<C4Health> CheckAsync(CancellationToken ct);
+    /// <summary>Połączenie oraz dostępność folderów stref i poziomów dostępu z konfiguracji.</summary>
+    Task<C4Health> CheckAsync(IReadOnlyList<Zone> zones, IReadOnlyList<Guid> accessLevelIds, CancellationToken ct);
+
+    Task<C4Catalog> GetCatalogAsync(CancellationToken ct);
+
+    /// <summary>Próbne logowanie do C4 podanymi danymi (bez zapisywania i bez wpływu na bieżące połączenie).</summary>
+    Task<C4Health> TestConnectionAsync(C4ConnectionInfo connection, CancellationToken ct);
 }

@@ -44,3 +44,16 @@ logs/
 
 # Paczka do pobrania (generowana przez git archive)
 C4GuestPass.zip
+
+# Lokalne paczki publikacji (np. publish-c4-2024/)
+/publish*/
+
+# Klucze ASP.NET Data Protection (data/keys) – nigdy do repozytorium
+key-*.xml
+
+# Paczki dla serwera (deploy/build-linux.ps1) – zawierają licencjonowane biblioteki C4 SDK
+/dist/
+
+# Pakiety Gamanet C4 SDK (licencjonowane) – tylko lokalnie
+/deploy/c4-sdk/*
+!/deploy/c4-sdk/.gitkeep

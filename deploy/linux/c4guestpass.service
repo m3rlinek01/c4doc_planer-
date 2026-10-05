@@ -1,0 +1,39 @@
+# Usługa systemd C4 GuestPass (instaluje ją install.sh).
+#   systemctl status c4guestpass      – stan
+#   journalctl -u c4guestpass -f      – logi na żywo
+#   systemctl restart c4guestpass     – po zmianie /etc/c4guestpass/c4guestpass.env
+[Unit]
+Description=C4 GuestPass - zaproszenia gosci z kodem QR (Gamanet C4)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+User=c4guestpass
+Group=c4guestpass
+WorkingDirectory=/opt/c4guestpass
+ExecStart=/opt/c4guestpass/C4GuestPass.Web
+EnvironmentFile=/etc/c4guestpass/c4guestpass.env
+Restart=always
+RestartSec=5
+# Kestrel kończy obsługę żądań przed zamknięciem.
+KillSignal=SIGINT
+TimeoutStopSec=30
+SyslogIdentifier=c4guestpass
+
+# Utwardzenie: aplikacja zapisuje wyłącznie do katalogu danych.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/c4guestpass
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

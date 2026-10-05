@@ -75,6 +75,11 @@ public sealed class ApiTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/visits")).StatusCode);
         (await jan.PostAsJsonAsync("/api/me/password", new { currentPassword = temp, newPassword = "NoweHaslo123" })).EnsureSuccessStatusCode();
 
+        // konfiguracja C4 tylko dla administratora budynku
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/settings/c4")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/c4/catalog")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.PostAsJsonAsync("/api/zones", new { name = "X", c4PersonFolderId = Guid.NewGuid() })).StatusCode);
+
         // firma nie może nadać strefy, której nie ma
         var now = DateTimeOffset.UtcNow;
         var denied = await jan.PostAsJsonAsync("/api/visits", new
@@ -110,5 +115,66 @@ public sealed class ApiTests : IDisposable
         // admin widzi wizytę firmy
         var all = await admin.GetFromJsonAsync<List<VisitDto>>("/api/visits");
         Assert.Single(all!);
+    }
+
+    [Fact]
+    public async Task Admin_sets_c4_connection_in_browser_and_password_never_leaves_server()
+    {
+        var admin = await Login("admin", AdminPwd);
+
+        var save = await admin.PutAsJsonAsync("/api/settings/c4/connection",
+            new { serverUri = "c4server.firma.local/c4/", user = "svc-guestpass", password = "Tajne-haslo-1" });
+        save.EnsureSuccessStatusCode();
+        var raw = await save.Content.ReadAsStringAsync();
+        Assert.DoesNotContain("Tajne-haslo-1", raw);
+        var view = JsonDocument.Parse(raw).RootElement;
+        Assert.Equal("https://c4server.firma.local", view.GetProperty("serverUri").GetString());   // /c4 obcięte, https dopisane
+        Assert.True(view.GetProperty("hasPassword").GetBoolean());
+        Assert.True(view.GetProperty("fromApp").GetBoolean());
+
+        // puste hasło = bez zmian
+        (await admin.PutAsJsonAsync("/api/settings/c4/connection", new { serverUri = "https://10.0.10.5", user = "svc2", password = "" })).EnsureSuccessStatusCode();
+        var again = (await admin.GetFromJsonAsync<JsonElement>("/api/settings/c4/connection"))!;
+        Assert.Equal("svc2", again.GetProperty("user").GetString());
+        Assert.True(again.GetProperty("hasPassword").GetBoolean());
+
+        // w bazie hasło jest zaszyfrowane
+        await using (var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(_dir, "t.db")};Pooling=False"))
+        {
+            await db.OpenAsync();
+            var cmd = db.CreateCommand();
+            cmd.CommandText = "SELECT value_json FROM settings WHERE key='c4.connection'";
+            var stored = (string)(await cmd.ExecuteScalarAsync())!;
+            Assert.DoesNotContain("Tajne-haslo-1", stored);
+        }
+
+        var test = await admin.PostAsJsonAsync("/api/settings/c4/connection/test", new { serverUri = "https://10.0.10.5", user = "svc2", password = "" });
+        test.EnsureSuccessStatusCode();   // Mock: zawsze OK
+
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await admin.PutAsJsonAsync("/api/settings/c4/connection", new { serverUri = "ftp://x", user = "a", password = "b" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_configures_c4_from_catalog()
+    {
+        var admin = await Login("admin", AdminPwd);
+        var catalog = await admin.GetFromJsonAsync<JsonElement>("/api/c4/catalog");
+        var folder = catalog.GetProperty("folders")[0].GetProperty("id").GetGuid();
+        var level = catalog.GetProperty("accessLevels")[0].GetProperty("id").GetGuid();
+        var card = catalog.GetProperty("cardTypes")[0].GetProperty("id").GetGuid();
+
+        (await admin.PutAsJsonAsync("/api/settings/c4", new { credentialType = "Card", cardTypeId = card, accessLevelIds = new[] { level } })).EnsureSuccessStatusCode();
+        var saved = await admin.GetFromJsonAsync<JsonElement>("/api/settings/c4");
+        Assert.Equal(card, saved.GetProperty("cardTypeId").GetGuid());
+        Assert.Equal(level, saved.GetProperty("accessLevelIds")[0].GetGuid());
+
+        var zone = await (await admin.PostAsJsonAsync("/api/zones", new { name = "Sala 5", c4PersonFolderId = folder, accessLevelIds = new[] { level } }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        var zones = await admin.GetFromJsonAsync<JsonElement>("/api/zones");
+        Assert.Contains(zones.EnumerateArray(), z => z.GetProperty("id").GetString() == zone.GetProperty("id").GetString());
+
+        var bad = await admin.PutAsJsonAsync("/api/settings/c4", new { credentialType = "Odcisk" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 }

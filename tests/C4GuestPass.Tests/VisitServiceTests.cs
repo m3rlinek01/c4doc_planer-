@@ -32,6 +32,7 @@ public sealed class VisitServiceTests : IDisposable
     private readonly VisitService _svc;
     private readonly IVisitStore _store;
     private readonly ITenancyStore _tenancy;
+    private readonly ISettingsStore _settings;
     private readonly Company _acme = new() { Name = "ACME", MaxConcurrentGuests = 3, Zones = [new CompanyZone { ProfileId = "lobby" }] };
     private readonly CurrentUser _me;
 
@@ -54,7 +55,7 @@ public sealed class VisitServiceTests : IDisposable
                 new AccessProfileOption { Id = "server", Name = "Serwerownia", C4PersonFolderId = Guid.NewGuid() },
             ]
         });
-        _svc = new VisitService(_store, _tenancy, _c4, new AccessCodeGenerator(_store, app), _mail, app, c4, _clock,
+        _svc = new VisitService(_store, _tenancy, _c4, new AccessCodeGenerator(_store, app), _mail, app, _settings = new SqliteSettingsStore(db, c4), _clock,
             NullLogger<VisitService>.Instance);
     }
 
@@ -106,6 +107,42 @@ public sealed class VisitServiceTests : IDisposable
         Assert.NotNull(saved.CheckedOutAt);
     }
 
+    [Fact]
+    public async Task Provisioning_uses_access_levels_and_credential_type_from_settings()
+    {
+        Guid common = Guid.NewGuid(), parking = Guid.NewGuid();
+        await _settings.SaveC4Async(new C4Settings { CredentialType = "PIN", AccessLevelIds = [common] });
+        var zones = (await _settings.GetZonesAsync()).ToList();
+        zones.Single(z => z.Id == "lobby").AccessLevelIds = [parking, common];
+        await _settings.SaveZonesAsync(zones);
+
+        await _svc.CreateAsync(Req(0), _me, default);
+
+        var sent = _c4.Persons.Values.Single();
+        Assert.Equal([common, parking], sent.AccessLevelIds);      // wspólne + strefy, bez duplikatów
+        Assert.Equal("PIN", sent.CredentialType);
+        Assert.Equal(zones.Single(z => z.Id == "lobby").C4PersonFolderId, sent.C4PersonFolderId);
+    }
+
+    [Fact]
+    public async Task Zone_configuration_is_validated_and_admin_only()
+    {
+        var cfg = new ConfigService(_settings, _tenancy, NullLogger<ConfigService>.Instance);
+        var admin = new CurrentUser(Guid.NewGuid(), "admin", "Admin", UserRole.BuildingAdmin, null);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => cfg.SaveZoneAsync(_me, null, new("X", null, Guid.NewGuid(), null), default));
+        await Assert.ThrowsAsync<ValidationException>(() => cfg.SaveZoneAsync(admin, null, new("Bez folderu", null, Guid.Empty, null), default));
+        await Assert.ThrowsAsync<ValidationException>(() => cfg.SaveZoneAsync(admin, null, new("hol", null, Guid.NewGuid(), null), default));
+        await Assert.ThrowsAsync<ValidationException>(() => cfg.DeleteZoneAsync(admin, "lobby", default));   // przydzielona ACME
+        await Assert.ThrowsAsync<ValidationException>(() => cfg.SaveC4Async(admin, new("Odcisk", null, null), default));
+
+        var zone = await cfg.SaveZoneAsync(admin, null, new(" Parking ", "Szlaban", Guid.NewGuid(), [Guid.NewGuid()]), default);
+        Assert.Equal("Parking", zone.Name);
+        Assert.Contains(await _settings.GetZonesAsync(), z => z.Id == zone.Id);
+        await cfg.DeleteZoneAsync(admin, zone.Id, default);
+        Assert.DoesNotContain(await _settings.GetZonesAsync(), z => z.Id == zone.Id);
+    }
+
     private CreateVisitRequest Req(double startInHours, double hours = 2) => new(
         "Jan", "Kowalski", "jan@example.com", null, "ACME", "Anna Nowak", "lobby",
         _clock.GetUtcNow().AddHours(startInHours), _clock.GetUtcNow().AddHours(startInHours + hours));
@@ -143,6 +180,26 @@ public sealed class VisitServiceTests : IDisposable
         await _svc.RunCycleAsync(default);
         Assert.Empty(_c4.Persons);
         Assert.Equal(VisitStatus.Expired, (await _store.GetAsync(v.Id))!.Status);
+    }
+
+    [Fact]
+    public async Task Stale_copy_does_not_overwrite_state_set_by_worker()
+    {
+        var v = await _svc.CreateAsync(Req(24), _me, default);
+        var stale = (await _store.GetAsync(v.Id))!;          // np. wizyta wczytana przez żądanie API (Scheduled)
+
+        _clock.Advance(TimeSpan.FromHours(23.6));           // worker zakłada gościa w C4
+        await _svc.RunCycleAsync(default);
+        Assert.Single(_c4.Persons);
+
+        await _svc.CheckInAsync(stale, default);            // zapis ze starej kopii nie może cofnąć Active
+        Assert.Equal(VisitStatus.Active, (await _store.GetAsync(v.Id))!.Status);
+        await _svc.RunCycleAsync(default);
+        Assert.Single(_c4.Persons);                         // brak drugiego założenia tej samej wizyty
+
+        await _svc.RevokeAsync(stale, default);             // stara kopia nadal pozwala odebrać dostęp
+        Assert.Empty(_c4.Persons);
+        Assert.Equal(VisitStatus.Revoked, stale.Status);
     }
 
     [Fact]

@@ -58,6 +58,7 @@ public sealed class Database
             CREATE INDEX IF NOT EXISTS ix_visits_status ON visits(status);
             CREATE INDEX IF NOT EXISTS ix_visits_code ON visits(access_code);
             CREATE INDEX IF NOT EXISTS ix_visits_company ON visits(company_id, valid_from);
+            CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL);
             """;
         cmd.ExecuteNonQuery();
     }

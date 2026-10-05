@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using C4GuestPass.Domain;
 
 namespace C4GuestPass.C4;
 
@@ -29,6 +30,20 @@ public sealed class MockC4Gateway(ILogger<MockC4Gateway> log) : IC4Gateway
         return Task.CompletedTask;
     }
 
-    public Task<C4Health> CheckAsync(CancellationToken ct) =>
+    public Task<C4Health> CheckAsync(IReadOnlyList<Zone> zones, IReadOnlyList<Guid> accessLevelIds, CancellationToken ct) =>
         Task.FromResult(new C4Health(true, "Mock", $"Symulacja C4 – {Persons.Count} aktywnych gości"));
+
+    /// <summary>Przykładowe drzewo C4 – foldery zgodne z domyślnymi strefami z appsettings.json.</summary>
+    public Task<C4Catalog> GetCatalogAsync(CancellationToken ct) => Task.FromResult(new C4Catalog(
+        [
+            new(new Guid("00000000-0000-0000-0000-000000000001"), "Goście / Hol"),
+            new(new Guid("00000000-0000-0000-0000-000000000002"), "Goście / Piętro 2"),
+            new(new Guid("00000000-0000-0000-0000-000000000003"), "Goście / Piętro 3"),
+            new(new Guid("00000000-0000-0000-0000-000000000004"), "Goście / Parking"),
+        ],
+        [
+            new(new Guid("00000000-0000-0000-0000-0000000000a1"), "visitor"),
+            new(new Guid("00000000-0000-0000-0000-0000000000a2"), "Parking"),
+        ],
+        [new(new Guid("00000000-0000-0000-0000-0000000000c1"), "CARD 48")]));
 }

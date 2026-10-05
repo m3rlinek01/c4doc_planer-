@@ -225,3 +225,14 @@ dialog .d-foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 22px;b
   .seg{max-width:100%;overflow-x:auto}.toolbar .search{margin-left:0;width:100%}
   .brand>div{display:none}
 }
+
+/* konfiguracja C4 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:20px 22px;margin-bottom:18px}
+.panel h2{font-size:15px;font-weight:600;margin:0 0 4px}
+.panel .lead{color:var(--muted);font-size:13px;margin:0 0 14px;max-width:72ch}
+.panel-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));column-gap:10px}
+.notice{padding:10px 14px;border-radius:var(--r);background:var(--wait-soft);color:var(--wait);font-size:13px;margin-bottom:16px}
+.notice.bad{background:var(--bad-soft);color:var(--bad)}
+.warn-txt{color:var(--bad)}
+.check select.input{margin-top:8px;height:32px;font-size:12.5px}

@@ -19,10 +19,12 @@ const I = {
   edit: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M10.5 2.5l3 3L6 13H3v-3z"/></svg>',
   key: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="5" cy="11" r="3"/><path d="M7.2 8.8L14 2M11.5 4.5l2 2"/></svg>',
   out: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6"/></svg>',
+  gear: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
+  trash: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>',
   copy: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="9" height="9" rx="1"/><path d="M11 5V2H2v9h3"/></svg>',
 };
 
-const S = { me: null, zones: [], companies: [], visits: [], users: [], filter: 'today', q: '' };
+const S = { me: null, zones: [], companies: [], visits: [], users: [], filter: 'today', q: '', catalog: null, catalogError: null, c4: null };
 
 /* ---------- API ---------- */
 async function api(path, opts = {}) {
@@ -135,7 +137,7 @@ async function checkC4() {
   const el = $('#c4state');
   try {
     const h = await api('/health');
-    el.innerHTML = `<span class="dot ${h.ok ? 'ok' : 'bad'}"></span><span>C4 ${h.mode === 'Mock' ? '(symulacja)' : ''}: ${h.ok ? 'połączono' : 'błąd'}</span>`;
+    el.innerHTML = `<span class="dot ${h.ok ? 'ok' : 'bad'}"></span><span>C4${h.mode === 'Mock' ? ' (symulacja)' : ''}: ${h.ok ? 'połączono' : 'błąd'}</span>`;
     el.title = h.message;
   } catch { el.innerHTML = '<span class="dot bad"></span><span>C4: brak odpowiedzi</span>'; }
 }
@@ -465,13 +467,14 @@ function renderCompanies() {
       <div class="spacer"></div><button class="btn primary" id="add">${I.plus} Dodaj firmę</button></div>
     <table class="table"><thead><tr><th>Firma</th><th>Strefy dla gości</th><th>Limit</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows || '<tr><td colspan="5" class="muted">Dodaj pierwszą firmę, a potem jej administratora w zakładce Użytkownicy.</td></tr>'}</tbody></table>`;
-  $('#add').onclick = () => openCompany();
-  $('#view').querySelectorAll('[data-c]').forEach(b => b.onclick = () => openCompany(S.companies.find(c => c.id === b.dataset.c)));
+  $('#add').onclick = () => openCompany().catch(e => toast(e.message, true));
+  $('#view').querySelectorAll('[data-c]').forEach(b => b.onclick = () => openCompany(S.companies.find(c => c.id === b.dataset.c)).catch(e => toast(e.message, true)));
 }
 
-function openCompany(c) {
+async function openCompany(c) {
   const isNew = !c;
   const has = id => c?.zones.find(z => z.profileId === id);
+  if (!S.catalog) await loadCatalog();
   openDrawer({
     title: isNew ? 'Nowa firma' : c.name, subtitle: 'Uprawnienia, które firma może nadawać gościom',
     submitLabel: isNew ? 'Dodaj firmę' : 'Zapisz',
@@ -481,7 +484,8 @@ function openCompany(c) {
       <div class="section">Strefy dla gości</div>
       ${S.zones.map(z => `<label class="check"><input type="checkbox" name="z" value="${esc(z.id)}" ${has(z.id) ? 'checked' : ''}>
         <div style="flex:1;min-width:0"><b>${esc(z.name)}</b><span>${esc(z.description || '')}</span>
-        <input class="input mono" style="margin-top:8px;height:30px;font-size:12px" data-folder="${esc(z.id)}" placeholder="Folder osób w C4 (GUID) – puste = domyślny strefy" value="${esc(has(z.id)?.c4PersonFolderId || '')}"></div></label>`).join('')}
+        ${folderSelect(`data-folder="${esc(z.id)}"`, has(z.id)?.c4PersonFolderId, `Folder strefy: ${folderText(z.c4PersonFolderId)}`)}</div></label>`).join('')
+        || '<p class="muted">Nie ma jeszcze stref. Dodaj je w zakładce Konfiguracja C4.</p>'}
       ${!isNew ? `<div class="section">Status</div><label class="check"><input type="checkbox" id="act" ${c.active ? 'checked' : ''}><div><b>Firma aktywna</b><span>Zablokowanie wylogowuje wszystkich jej użytkowników.</span></div></label>` : ''}`,
     onSubmit: async d => {
       const zones = [...d.querySelectorAll('input[name=z]:checked')].map(i => {
@@ -495,6 +499,172 @@ function openCompany(c) {
       renderCompanies(); toast(isNew ? `Dodano firmę ${res.name}` : 'Zapisano zmiany');
     },
   });
+}
+
+/* ---------- widok: konfiguracja C4 (administrator budynku) ---------- */
+const short = id => '…' + String(id).slice(-4);
+const catItem = (list, id) => S.catalog?.[list].find(x => x.id === id);
+const folderText = id => catItem('folders', id)?.name ?? (S.catalog ? `nie ma w C4 (${short(id)})` : `folder ${short(id)}`);
+const catLabel = (list, id) => catItem(list, id) ? esc(catItem(list, id).name)
+  : `<span class="warn-txt" title="${esc(id)}">${S.catalog ? 'nie ma w C4' : 'brak połączenia z C4'} (${short(id)})</span>`;
+
+async function loadCatalog(force = false) {
+  if (S.catalog && !force) return S.catalog;
+  try { S.catalog = await api('/c4/catalog'); S.catalogError = null; }
+  catch (e) { S.catalog = null; S.catalogError = e.message; }
+  return S.catalog;
+}
+
+/** Lista wyboru folderu osób w C4. `empty` = etykieta pustej opcji (np. folder domyślny strefy); bez niej wybór jest wymagany. */
+function folderSelect(attrs, current, empty) {
+  const known = !current || catItem('folders', current);
+  return `<select class="input" ${attrs}>
+    ${empty ? `<option value="">${esc(empty)}</option>` : `<option value="" disabled ${current ? '' : 'selected'}>— wybierz folder z C4 —</option>`}
+    ${(S.catalog?.folders || []).map(f => `<option value="${f.id}" ${f.id === current ? 'selected' : ''}>${esc(f.name)}</option>`).join('')}
+    ${known ? '' : `<option value="${esc(current)}" selected>${esc(folderText(current))}</option>`}
+  </select>`;
+}
+
+/** Pola wyboru poziomów dostępu z C4; zaznaczone, których nie ma już w C4, zostają widoczne do odznaczenia. */
+function levelChecks(name, selected, exclude = []) {
+  const levels = (S.catalog?.accessLevels || []).filter(l => !exclude.includes(l.id));
+  const missing = selected.filter(id => !exclude.includes(id) && !levels.some(l => l.id === id));
+  if (!levels.length && !missing.length && exclude.length)
+    return '<p class="muted">Wszystkie poziomy dostępu z C4 każdy gość dostaje już jako wspólne.</p>';
+  if (!levels.length && !missing.length)
+    return `<p class="muted">${S.catalog ? 'W C4 nie ma jeszcze poziomów dostępu – utwórz je w kliencie C4 i kliknij „Odśwież dane z C4”.' : 'Lista dostępna po połączeniu z C4.'}</p>`;
+  return `<div class="checks">${levels.map(l => `<label class="check"><input type="checkbox" name="${name}" value="${l.id}" ${selected.includes(l.id) ? 'checked' : ''}><div><b>${esc(l.name)}</b></div></label>`).join('')}
+    ${missing.map(id => `<label class="check"><input type="checkbox" name="${name}" value="${id}" checked><div><b>${catLabel('accessLevels', id)}</b><span>odznacz, aby usunąć</span></div></label>`).join('')}</div>`;
+}
+const checkedValues = (root, name) => [...root.querySelectorAll(`input[name="${name}"]:checked`)].map(i => i.value);
+
+function renderConfig() {
+  $('#view').innerHTML = `<div class="head"><div><h1>Konfiguracja C4</h1><p>Pobieranie danych z C4…</p></div></div>`;
+  loadConfig(false);
+}
+
+async function loadConfig(force) {
+  try {
+    const [c4, zones, health] = await Promise.all([api('/settings/c4'), api('/zones'), api('/health'), loadCatalog(force)]);
+    S.c4 = c4; S.zones = zones; S.health = health;
+  } catch (e) { toast(e.message, true); return; }
+  if ((location.hash.slice(2) || 'visits') === 'config') drawConfig();
+  if (force) { checkC4(); toast(S.catalog ? 'Pobrano aktualne dane z C4' : 'Nie udało się połączyć z C4', !S.catalog); }
+}
+
+function drawConfig() {
+  const c4 = S.c4, isCard = c4.credentialType !== 'PIN';
+  const usedBy = id => S.companies.filter(c => c.zones.some(z => z.profileId === id)).map(c => c.name);
+  const zoneRows = S.zones.map(z => `
+    <tr>
+      <td><b>${esc(z.name)}</b>${z.description ? `<span class="muted" style="display:block;font-size:12px">${esc(z.description)}</span>` : ''}</td>
+      <td>${catLabel('folders', z.c4PersonFolderId)}</td>
+      <td><div class="chips">${z.accessLevelIds.map(id => `<span class="tag">${catLabel('accessLevels', id)}</span>`).join('') || '<span class="muted">tylko wspólne</span>'}</div></td>
+      <td>${usedBy(z.id).map(esc).join(', ') || '<span class="muted">żadna</span>'}</td>
+      <td class="r"><button class="icon-btn" data-menu data-z="${esc(z.id)}" aria-label="Akcje">${I.more}</button></td>
+    </tr>`).join('');
+
+  $('#view').innerHTML = `
+    <div class="head"><div><h1>Konfiguracja C4</h1><p>Jak goście są zakładani w systemie kontroli dostępu – wybierasz z list pobranych z C4</p></div>
+      <div class="spacer"></div><button class="btn" id="refresh">Odśwież dane z C4</button></div>
+    ${S.catalogError ? `<div class="notice bad">${esc(S.catalogError)} Ustawienia możesz przeglądać, ale wybór z list będzie możliwy po przywróceniu połączenia.</div>`
+      : S.health && !S.health.ok ? `<div class="notice bad"><b>Do poprawy:</b> ${esc(S.health.message)}. Wybierz właściwy folder lub uprawnienie z listy albo usuń nieużywaną strefę.</div>` : ''}
+
+    <form class="panel" id="c4form" novalidate>
+      <h2>Karta gościa</h2>
+      <p class="lead">W jakiej postaci kod z zaproszenia trafia do C4. Czytnik QR przy drzwiach odczytuje kod i przekazuje go jak numer karty (najczęściej) albo jak PIN.</p>
+      <div class="grid2">
+        <label class="check"><input type="radio" name="ctype" value="Card" ${isCard ? 'checked' : ''}><div><b>Karta</b><span>Kod z QR zapisywany jako numer karty</span></div></label>
+        <label class="check"><input type="radio" name="ctype" value="PIN" ${isCard ? '' : 'checked'}><div><b>PIN</b><span>Kod z QR zapisywany jako PIN</span></div></label>
+      </div>
+      <div id="cardTypeBox" ${isCard ? '' : 'hidden'}>
+        ${field('cardType', 'Typ karty w C4', `<select class="input" id="cardType">
+          <option value="">Automatycznie – pierwszy włączony typ karty</option>
+          ${(S.catalog?.cardTypes || []).map(t => `<option value="${t.id}" ${t.id === c4.cardTypeId ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
+          ${c4.cardTypeId && !catItem('cardTypes', c4.cardTypeId) ? `<option value="${c4.cardTypeId}" selected>${S.catalog ? 'Typ niewłączony w C4' : 'Zapisany typ'} (${short(c4.cardTypeId)})</option>` : ''}
+        </select>`, 'Lista zawiera tylko typy włączone w C4. Typ musi pomieścić kod z QR (12 cyfr wymaga karty co najmniej 40-bitowej).')}
+      </div>
+
+      <h2 style="margin-top:22px">Uprawnienia każdego gościa</h2>
+      <p class="lead">Poziomy dostępu z C4, które dostaje każdy gość niezależnie od strefy – np. <b>visitor</b>. Dodatkowe uprawnienia możesz dodać w strefach poniżej.</p>
+      ${levelChecks('lvl', c4.accessLevelIds)}
+      <div class="panel-foot"><button type="submit" class="btn primary">Zapisz ustawienia</button></div>
+    </form>
+
+    <section class="panel">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:240px"><h2>Strefy dla gości</h2>
+          <p class="lead">Strefa to miejsce, do którego firma może zaprosić gościa. Każda ma folder w C4, w którym zakładany jest gość, i opcjonalnie dodatkowe uprawnienia. Strefy przydzielasz firmom w zakładce Firmy.</p></div>
+        <button class="btn primary" id="addZone">${I.plus} Dodaj strefę</button>
+      </div>
+      <table class="table"><thead><tr><th>Strefa</th><th>Folder w C4</th><th>Dodatkowe uprawnienia</th><th>Firmy</th><th></th></tr></thead>
+        <tbody>${zoneRows || '<tr><td colspan="5" class="muted">Nie ma jeszcze stref – dodaj pierwszą.</td></tr>'}</tbody></table>
+    </section>`;
+
+  const form = $('#c4form');
+  form.querySelectorAll('input[name=ctype]').forEach(r => r.onchange = () => { $('#cardTypeBox').hidden = form.querySelector('input[name=ctype]:checked').value !== 'Card'; });
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try {
+      S.c4 = await api('/settings/c4', { method: 'PUT', body: {
+        credentialType: form.querySelector('input[name=ctype]:checked').value,
+        cardTypeId: $('#cardType').value || null, accessLevelIds: checkedValues(form, 'lvl') } });
+      toast('Zapisano ustawienia C4'); await refreshHealth();
+    } catch (ex) { toast(ex.message, true); }
+    finally { btn.disabled = false; }
+  };
+  $('#refresh').onclick = () => { $('#refresh').disabled = true; loadConfig(true); };
+  $('#addZone').onclick = () => openZone();
+  $('#view').querySelectorAll('[data-z]').forEach(b => b.onclick = () => {
+    const z = S.zones.find(x => x.id === b.dataset.z);
+    openMenu(b, [
+      { label: 'Edytuj', icon: I.edit, run: () => openZone(z) },
+      '-',
+      { label: 'Usuń strefę', icon: I.trash, danger: true, run: () => confirmDeleteZone(z) },
+    ]);
+  });
+}
+
+async function refreshHealth() {
+  try { S.health = await api('/health'); } catch { S.health = null; }
+  drawConfig(); checkC4();
+}
+
+function openZone(z) {
+  const isNew = !z;
+  if (!S.catalog) { toast('Brak połączenia z C4 – nie można wybrać folderu. Kliknij „Odśwież dane z C4”.', true); return; }
+  const common = S.c4?.accessLevelIds.map(id => catItem('accessLevels', id)?.name ?? short(id)).join(', ') || 'brak';
+  openDrawer({
+    title: isNew ? 'Nowa strefa' : z.name, subtitle: 'Gdzie i z jakimi uprawnieniami gość jest zakładany w C4',
+    submitLabel: isNew ? 'Dodaj strefę' : 'Zapisz',
+    body: `
+      ${field('zn', 'Nazwa strefy', `<input class="input" id="zn" required maxlength="80" value="${esc(z?.name)}" placeholder="np. Piętro 2 – biura">`, 'Tę nazwę widzą firmy przy zapraszaniu gościa.')}
+      ${field('zd', 'Opis', `<input class="input" id="zd" maxlength="200" value="${esc(z?.description)}" placeholder="opcjonalnie, np. hol, windy, drzwi biura 2.07">`)}
+      ${field('zf', 'Folder osób w C4', folderSelect('id="zf"', z?.c4PersonFolderId, null), 'W tym folderze aplikacja zakłada gościa na czas wizyty i usuwa go po jej zakończeniu.')}
+      <div class="section">Dodatkowe uprawnienia w tej strefie</div>
+      <p class="muted" style="margin:-4px 0 10px;font-size:12.5px">Oprócz wspólnych dla każdego gościa: ${esc(common)}.</p>
+      ${levelChecks('zl', z?.accessLevelIds || [], S.c4?.accessLevelIds || [])}`,
+    onSubmit: async d => {
+      if (!val(d, 'zn')) throw new Error('Podaj nazwę strefy.');
+      if (!val(d, 'zf')) throw new Error('Wybierz folder osób w C4.');
+      const body = { name: val(d, 'zn'), description: val(d, 'zd') || null, c4PersonFolderId: val(d, 'zf'), accessLevelIds: checkedValues(d, 'zl') };
+      const res = await api(isNew ? '/zones' : `/zones/${encodeURIComponent(z.id)}`, { method: isNew ? 'POST' : 'PUT', body });
+      if (isNew) S.zones.push(res); else Object.assign(z, res);
+      toast(isNew ? `Dodano strefę ${res.name}` : 'Zapisano strefę'); await refreshHealth();
+    },
+  });
+}
+
+function confirmDeleteZone(z) {
+  openDialog(`<div class="d-body"><h2>Usunąć strefę?</h2>
+    <p class="muted">Strefa <b>${esc(z.name)}</b> zniknie z listy przy zapraszaniu gości. Folderu i uprawnień w C4 to nie zmienia.</p></div>
+    <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn accent" id="ok">Usuń</button></div>`,
+    dlg => $('#ok', dlg).onclick = async () => {
+      dlg.close();
+      try { await api(`/zones/${encodeURIComponent(z.id)}`, { method: 'DELETE' }); S.zones = S.zones.filter(x => x.id !== z.id); toast('Strefa usunięta'); await refreshHealth(); }
+      catch (e) { toast(e.message, true); }
+    });
 }
 
 /* ---------- konto ---------- */
@@ -542,7 +712,8 @@ function renderForcedPassword() {
 const PAGES = () => [
   { id: 'visits', label: 'Goście', icon: I.visits, render: renderVisits, count: () => S.visits.filter(inside).length || '' },
   ...(S.me.canManageUsers ? [{ id: 'users', label: 'Użytkownicy', icon: I.users, render: renderUsers, count: () => S.users.length }] : []),
-  ...(S.me.isBuildingAdmin ? [{ id: 'companies', label: 'Firmy', icon: I.companies, render: renderCompanies, count: () => S.companies.length }] : []),
+  ...(S.me.isBuildingAdmin ? [{ id: 'companies', label: 'Firmy', icon: I.companies, render: renderCompanies, count: () => S.companies.length },
+                              { id: 'config', label: 'Konfiguracja C4', icon: I.gear, render: renderConfig, count: () => '' }] : []),
 ];
 
 function route() {

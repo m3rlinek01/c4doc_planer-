@@ -44,3 +44,6 @@ logs/
 
 # Paczka do pobrania (generowana przez git archive)
 C4GuestPass.zip
+
+# Lokalne paczki publikacji (np. publish-c4-2024/)
+/publish*/

@@ -25,17 +25,19 @@ public sealed class VisitService(
     AccessCodeGenerator codes,
     IGuestMailer mailer,
     IOptions<GuestPassOptions> appOptions,
-    IOptions<C4Options> c4Options,
+    ISettingsStore settings,
     TimeProvider clock,
     ILogger<VisitService> log)
 {
     private readonly GuestPassOptions _app = appOptions.Value;
 
-    private IReadOnlyList<AccessProfileOption> Profiles => c4Options.Value.AccessProfiles;
+    /// <summary>
+    /// Stan wizyty zmieniają równolegle żądania API i worker. Wszystkie zmiany idą przez tę blokadę i zaczynają się
+    /// od odświeżenia wizyty z bazy – inaczej starsza kopia (np. Scheduled) nadpisałaby Active, a gość zostałby
+    /// zakładany w C4 drugi raz (duplikat kodu karty, osierocona osoba w C4). Aplikacja działa w jednej instancji.
+    /// </summary>
+    private static readonly SemaphoreSlim Gate = new(1, 1);
 
-    /// <summary>Strefy, które firma może nadawać gościom.</summary>
-    public IEnumerable<AccessProfileOption> ZonesFor(Company company) =>
-        Profiles.Where(p => company.Zones.Any(z => z.ProfileId == p.Id));
 
     public async Task<IReadOnlyList<Visit>> ListAsync(CurrentUser me, CancellationToken ct) =>
         await store.ListAsync(clock.GetUtcNow().AddDays(-14), me.IsBuildingAdmin ? null : me.CompanyId, ct);
@@ -53,7 +55,7 @@ public sealed class VisitService(
         var company = await tenancy.GetCompanyAsync(companyId, ct);
         if (company is not { Active: true }) throw new ValidationException("Firma nie istnieje lub jest zablokowana.");
 
-        Validate(r, company);
+        Validate(r, company, await settings.GetZonesAsync(ct));
         if (company.MaxConcurrentGuests > 0 &&
             await store.CountOverlappingAsync(company.Id, r.ValidFrom, r.ValidTo, ct) >= company.MaxConcurrentGuests)
             throw new ValidationException($"Limit firmy: maks. {company.MaxConcurrentGuests} jednocześnie ważnych zaproszeń.");
@@ -67,20 +69,28 @@ public sealed class VisitService(
             AccessCode = await codes.NewUniqueCodeAsync(ct),
             CreatedBy = me.Login,
         };
-        await store.InsertAsync(visit, ct);
-        log.LogInformation("Visit {Id} for {Name} created by {Op} for company {Company}", visit.Id, visit.FullName, me.Login, company.Name);
+        // Blokada od wstawienia do wysłania maila – worker nie może w tym czasie założyć tej samej wizyty.
+        await Gate.WaitAsync(ct);
+        try
+        {
+            await store.InsertAsync(visit, ct);
+            log.LogInformation("Visit {Id} for {Name} created by {Op} for company {Company}", visit.Id, visit.FullName, me.Login, company.Name);
 
-        if (IsInActivationWindow(visit)) await ProvisionAsync(visit, ct);
-        await SendMailAsync(visit, ct);
+            if (IsInActivationWindow(visit)) await ProvisionAsync(visit, ct);
+            await SendMailCoreAsync(visit, ct);
+        }
+        finally { Gate.Release(); }
         return visit;
     }
 
-    public async Task SendMailAsync(Visit visit, CancellationToken ct)
+    public Task SendMailAsync(Visit visit, CancellationToken ct) => UnderGateAsync(visit, () => SendMailCoreAsync(visit, ct), ct);
+
+    private async Task SendMailCoreAsync(Visit visit, CancellationToken ct)
     {
         try
         {
             var company = await tenancy.GetCompanyAsync(visit.CompanyId, ct);
-            var zone = Profiles.FirstOrDefault(p => p.Id == visit.AccessProfileId)?.Name ?? visit.AccessProfileId;
+            var zone = (await settings.GetZonesAsync(ct)).FirstOrDefault(z => z.Id == visit.AccessProfileId)?.Name ?? visit.AccessProfileId;
             await mailer.SendInvitationAsync(visit, company?.Name ?? "", zone, ct);
             visit.EmailSentAt = clock.GetUtcNow();
             if (visit.LastError?.StartsWith("Mail") == true) visit.LastError = null;
@@ -93,40 +103,50 @@ public sealed class VisitService(
         await store.UpdateAsync(visit, ct);
     }
 
-    public async Task RevokeAsync(Visit visit, CancellationToken ct)
+    public Task RevokeAsync(Visit visit, CancellationToken ct) => UnderGateAsync(visit, async () =>
     {
         if (visit.Status is VisitStatus.Revoked or VisitStatus.Expired) return;
         await DeprovisionAsync(visit, VisitStatus.Revoked, ct);
-    }
+    }, ct);
 
     /// <summary>Recepcja: gość przyszedł / wyszedł. Wyjście kończy wizytę i od razu usuwa kod z C4.</summary>
-    public async Task CheckInAsync(Visit v, CancellationToken ct)
+    public Task CheckInAsync(Visit v, CancellationToken ct) => UnderGateAsync(v, async () =>
     {
         if (v.Status is not (VisitStatus.Scheduled or VisitStatus.Active)) throw new ValidationException("Wizyta jest zakończona.");
         v.CheckedInAt ??= clock.GetUtcNow();
         await store.UpdateAsync(v, ct);
-    }
+    }, ct);
 
-    public async Task CheckOutAsync(Visit v, CancellationToken ct)
+    public Task CheckOutAsync(Visit v, CancellationToken ct) => UnderGateAsync(v, async () =>
     {
         if (v.CheckedInAt is null) throw new ValidationException("Gość nie został zarejestrowany jako obecny.");
         v.CheckedOutAt ??= clock.GetUtcNow();
         await store.UpdateAsync(v, ct);
         if (v.Status is VisitStatus.Scheduled or VisitStatus.Active) await DeprovisionAsync(v, VisitStatus.Expired, ct);
-    }
+    }, ct);
 
     /// <summary>Jeden cykl workera: aktywuje wizyty, które weszły w okno, i usuwa te, które z niego wyszły.</summary>
     public async Task RunCycleAsync(CancellationToken ct)
     {
         foreach (var v in await store.ListByStatusAsync(VisitStatus.Scheduled, ct))
         {
-            if (DeactivationDue(v)) { v.Status = VisitStatus.Expired; await store.UpdateAsync(v, ct); continue; }
-            if (IsInActivationWindow(v) && v.ProvisionAttempts < _app.MaxProvisionAttempts) await ProvisionAsync(v, ct);
+            await UnderGateAsync(v, async () =>
+            {
+                if (v.Status != VisitStatus.Scheduled) return;   // zmieniona w międzyczasie (API)
+                if (DeactivationDue(v)) { v.Status = VisitStatus.Expired; await store.UpdateAsync(v, ct); return; }
+                if (IsInActivationWindow(v) && v.ProvisionAttempts < _app.MaxProvisionAttempts) await ProvisionAsync(v, ct);
+            }, ct);
         }
         foreach (var v in await store.ListByStatusAsync(VisitStatus.Active, ct))
         {
             if (!DeactivationDue(v)) continue;
-            try { await DeprovisionAsync(v, VisitStatus.Expired, ct); }
+            try
+            {
+                await UnderGateAsync(v, async () =>
+                {
+                    if (v.Status == VisitStatus.Active) await DeprovisionAsync(v, VisitStatus.Expired, ct);
+                }, ct);
+            }
             catch (Exception) { /* zalogowane, ponowienie w następnym cyklu */ }
         }
         if (_app.RetentionDays > 0)
@@ -134,6 +154,28 @@ public sealed class VisitService(
             var purged = await store.PurgeFinishedAsync(clock.GetUtcNow().AddDays(-_app.RetentionDays), ct);
             if (purged > 0) log.LogInformation("RODO: usunięto dane {Count} zakończonych wizyt starszych niż {Days} dni", purged, _app.RetentionDays);
         }
+    }
+
+    /// <summary>Wykonuje zmianę pod blokadą, na stanie wizyty odświeżonym z bazy (obiekt wywołującego jest aktualizowany).</summary>
+    private async Task UnderGateAsync(Visit v, Func<Task> action, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            if (await store.GetAsync(v.Id, ct) is { } fresh)
+            {
+                v.Status = fresh.Status;
+                v.C4PersonId = fresh.C4PersonId;
+                v.C4CredentialId = fresh.C4CredentialId;
+                v.ProvisionAttempts = fresh.ProvisionAttempts;
+                v.LastError = fresh.LastError;
+                v.EmailSentAt = fresh.EmailSentAt;
+                v.CheckedInAt = fresh.CheckedInAt;
+                v.CheckedOutAt = fresh.CheckedOutAt;
+            }
+            await action();
+        }
+        finally { Gate.Release(); }
     }
 
     internal bool IsInActivationWindow(Visit v) =>
@@ -147,12 +189,15 @@ public sealed class VisitService(
         try
         {
             var company = await tenancy.GetCompanyAsync(v.CompanyId, ct) ?? throw new InvalidOperationException("Brak firmy");
-            var profile = Profiles.First(p => p.Id == v.AccessProfileId);
+            var profile = (await settings.GetZonesAsync(ct)).FirstOrDefault(z => z.Id == v.AccessProfileId)
+                          ?? throw new InvalidOperationException("Strefa wizyty została usunięta z konfiguracji.");
+            var c4s = await settings.GetC4Async(ct);
             var folder = company.Zones.FirstOrDefault(z => z.ProfileId == profile.Id)?.C4PersonFolderId ?? profile.C4PersonFolderId;
 
             var reference = await c4.ProvisionGuestAsync(new C4GuestRequest(
                 v.Id, v.FirstName, v.LastName, v.Company, company.Name, v.AccessCode, folder, profile.Name,
-                v.ValidFrom.AddMinutes(-_app.ActivateMinutesBefore), v.ValidTo.AddMinutes(_app.DeactivateMinutesAfter)), ct);
+                v.ValidFrom.AddMinutes(-_app.ActivateMinutesBefore), v.ValidTo.AddMinutes(_app.DeactivateMinutesAfter),
+                c4s.AccessLevelIds.Concat(profile.AccessLevelIds).Distinct().ToList(), c4s.CredentialType, c4s.CardTypeId), ct);
             v.C4PersonId = reference.PersonId;
             v.C4CredentialId = reference.CredentialId;
             v.Status = VisitStatus.Active;
@@ -190,13 +235,14 @@ public sealed class VisitService(
         log.LogInformation("Visit {Id} -> {Status}", v.Id, finalStatus);
     }
 
-    private void Validate(CreateVisitRequest r, Company company)
+    private void Validate(CreateVisitRequest r, Company company, IReadOnlyList<Zone> zones)
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(r.FirstName)) errors.Add("Imię jest wymagane.");
         if (string.IsNullOrWhiteSpace(r.LastName)) errors.Add("Nazwisko jest wymagane.");
         if (string.IsNullOrWhiteSpace(r.Email) || !MailAddress.TryCreate(r.Email.Trim(), out _)) errors.Add("Nieprawidłowy e-mail.");
-        if (!ZonesFor(company).Any(p => p.Id == r.AccessProfileId)) errors.Add("Firma nie ma uprawnień do nadawania tej strefy.");
+        if (!company.Zones.Any(z => z.ProfileId == r.AccessProfileId) || zones.All(z => z.Id != r.AccessProfileId))
+            errors.Add("Firma nie ma uprawnień do nadawania tej strefy.");
         if (r.ValidTo <= r.ValidFrom) errors.Add("Koniec wizyty musi być po początku.");
         if (r.ValidTo - r.ValidFrom > TimeSpan.FromHours(_app.MaxVisitHours)) errors.Add($"Wizyta może trwać maks. {_app.MaxVisitHours} h.");
         if (r.ValidTo <= clock.GetUtcNow()) errors.Add("Wizyta jest już w przeszłości.");

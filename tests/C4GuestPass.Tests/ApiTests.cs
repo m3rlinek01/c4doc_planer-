@@ -75,6 +75,11 @@ public sealed class ApiTests : IDisposable
         Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/visits")).StatusCode);
         (await jan.PostAsJsonAsync("/api/me/password", new { currentPassword = temp, newPassword = "NoweHaslo123" })).EnsureSuccessStatusCode();
 
+        // konfiguracja C4 tylko dla administratora budynku
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/settings/c4")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.GetAsync("/api/c4/catalog")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await jan.PostAsJsonAsync("/api/zones", new { name = "X", c4PersonFolderId = Guid.NewGuid() })).StatusCode);
+
         // firma nie może nadać strefy, której nie ma
         var now = DateTimeOffset.UtcNow;
         var denied = await jan.PostAsJsonAsync("/api/visits", new
@@ -110,5 +115,28 @@ public sealed class ApiTests : IDisposable
         // admin widzi wizytę firmy
         var all = await admin.GetFromJsonAsync<List<VisitDto>>("/api/visits");
         Assert.Single(all!);
+    }
+
+    [Fact]
+    public async Task Admin_configures_c4_from_catalog()
+    {
+        var admin = await Login("admin", AdminPwd);
+        var catalog = await admin.GetFromJsonAsync<JsonElement>("/api/c4/catalog");
+        var folder = catalog.GetProperty("folders")[0].GetProperty("id").GetGuid();
+        var level = catalog.GetProperty("accessLevels")[0].GetProperty("id").GetGuid();
+        var card = catalog.GetProperty("cardTypes")[0].GetProperty("id").GetGuid();
+
+        (await admin.PutAsJsonAsync("/api/settings/c4", new { credentialType = "Card", cardTypeId = card, accessLevelIds = new[] { level } })).EnsureSuccessStatusCode();
+        var saved = await admin.GetFromJsonAsync<JsonElement>("/api/settings/c4");
+        Assert.Equal(card, saved.GetProperty("cardTypeId").GetGuid());
+        Assert.Equal(level, saved.GetProperty("accessLevelIds")[0].GetGuid());
+
+        var zone = await (await admin.PostAsJsonAsync("/api/zones", new { name = "Sala 5", c4PersonFolderId = folder, accessLevelIds = new[] { level } }))
+            .Content.ReadFromJsonAsync<JsonElement>();
+        var zones = await admin.GetFromJsonAsync<JsonElement>("/api/zones");
+        Assert.Contains(zones.EnumerateArray(), z => z.GetProperty("id").GetString() == zone.GetProperty("id").GetString());
+
+        var bad = await admin.PutAsJsonAsync("/api/settings/c4", new { credentialType = "Odcisk" });
+        Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
     }
 }

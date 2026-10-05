@@ -285,6 +285,9 @@ Wersjonowane interfejsy (`ISimpleClientV2`, `ISimpleClientPersonRepositoryV3`, `
 
 ### 7.2 Punkty `VERIFY` w `C4/SimpleClientC4Gateway.cs`
 
+> **Aktualizacja:** dla C4 2024 (SDK 21) wszystkie punkty zostały sprawdzone na działającym serwerze i
+> rozstrzygnięte – patrz [INTEGRACJA-C4-2024.md](INTEGRACJA-C4-2024.md). Poniższa tabela opisuje stan sprzed testów.
+
 | # | Miejsce | Obecne założenie | Co sprawdzić w dokumentacji SDK (2024 i 2026) | Alternatywa, jeśli inaczej |
 |---|---|---|---|---|
 | V1 | `ConnectorConfiguration.TcpClient` | Nazwa analogiczna do `HttpClient` (potwierdzonego) | Członkowie `ConnectorConfiguration` | Używać tylko `Http` (domyślne) albo poprawić nazwę |

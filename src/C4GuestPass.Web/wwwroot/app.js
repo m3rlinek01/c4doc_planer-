@@ -140,6 +140,8 @@ async function loadUsers() { S.users = S.me.canManageUsers ? await api('/users')
 
 async function checkC4() {
   const el = $('#c4state');
+  el.hidden = !S.me.isBuildingAdmin;          // stan połączenia z C4 ma znaczenie tylko dla administratora budynku
+  if (el.hidden) return;
   try {
     const h = await api('/health');
     el.innerHTML = `<span class="dot ${h.ok ? 'ok' : 'bad'}"></span><span>C4${h.mode === 'Mock' ? ' (symulacja)' : ''}: ${h.ok ? 'połączono' : 'błąd'}</span>`;
@@ -156,7 +158,7 @@ function statusOf(v) {
   if (v.checkedOutAt) return { cls: '', label: 'Wyszedł', sub: hm(v.checkedOutAt) };
   if (v.status === 'Revoked') return { cls: '', label: 'Dostęp cofnięty', sub: '' };
   if (v.status === 'Expired') return { cls: '', label: 'Wygasło', sub: v.checkedInAt ? 'bez wyjścia' : 'nie przyszedł' };
-  if (v.lastError) return { cls: 'issue', label: v.lastError.startsWith('Mail') ? 'Mail nie wysłany' : 'Błąd C4', sub: 'szczegóły w menu' };
+  if (v.lastError) return { cls: 'issue', label: v.lastError.startsWith('Mail') ? 'Mail nie wysłany' : 'Kod jeszcze nieaktywny', sub: 'szczegóły w menu' };
   if (inside(v)) return { cls: 'in', label: 'W budynku', sub: 'od ' + hm(v.checkedInAt) };
   if (v.status === 'Active') return { cls: 'active', label: 'Kod aktywny', sub: 'czeka na gościa' };
   return { cls: 'scheduled', label: 'Zaplanowana', sub: 'kod wysłany' };
@@ -259,7 +261,7 @@ async function visitAction(act, id, anchor) {
     openMenu(anchor, [
       { label: 'Pokaż kod QR', icon: I.qr, run: () => showQr(v) },
       ...(live ? [{ label: 'Wyślij e-mail ponownie', icon: I.mail, run: () => visitAction('resend', id) }] : []),
-      ...(v.lastError ? [{ label: 'Szczegóły problemu', icon: I.ban, run: () => openDialog(`<div class="d-body"><h2>Problem z wizytą</h2><p class="muted">${esc(v.lastError)}</p><p class="muted">System ponawia operacje w C4 automatycznie co 30 s.</p></div><div class="d-foot"><button class="btn" data-close>Zamknij</button></div>`) }] : []),
+      ...(v.lastError ? [{ label: 'Szczegóły problemu', icon: I.ban, run: () => showProblem(v) }] : []),
       ...(live ? ['-', { label: 'Cofnij dostęp', icon: I.ban, danger: true, run: () => confirmRevoke(v) }] : []),
     ]);
     return;
@@ -267,15 +269,25 @@ async function visitAction(act, id, anchor) {
   try {
     const updated = await api(`/visits/${id}/${act}`, { method: 'POST' });
     Object.assign(v, updated);
-    toast({ checkin: `${v.firstName} ${v.lastName} – w budynku`, checkout: `${v.firstName} ${v.lastName} wyszedł. Kod usunięty z C4.`,
+    toast({ checkin: `${v.firstName} ${v.lastName} – w budynku`, checkout: `${v.firstName} ${v.lastName} wyszedł. Kod już nie otwiera drzwi.`,
             resend: `Wysłano ponownie na ${v.email}`, revoke: `Dostęp cofnięty – kod nie otworzy już drzwi` }[act]);
     renderVisits();
   } catch (e) { toast(e.message, true); }
 }
 
+function showProblem(v) {
+  const mail = v.lastError.startsWith('Mail');
+  const text = mail
+    ? `Nie udało się wysłać e-maila z kodem na adres <b>${esc(v.email)}</b>. Sprawdź adres i wybierz z menu „Wyślij e-mail ponownie” albo pokaż gościowi kod QR na ekranie.`
+    : 'Kod gościa nie jest jeszcze aktywny w drzwiach budynku. System próbuje ponownie co pół minuty. Jeśli problem nie zniknie przed wizytą, skontaktuj się z recepcją budynku.';
+  openDialog(`<div class="d-body"><h2>${mail ? 'E-mail nie został wysłany' : 'Kod jeszcze nie działa'}</h2><p class="muted">${text}</p>
+    ${S.me.isBuildingAdmin ? `<p class="muted" style="font-size:12px">Szczegóły techniczne: <span class="mono">${esc(v.lastError)}</span></p>` : ''}</div>
+    <div class="d-foot"><button class="btn" data-close>Zamknij</button></div>`);
+}
+
 function confirmRevoke(v) {
   openDialog(`<div class="d-body"><h2>Cofnąć dostęp?</h2>
-    <p class="muted">Kod gościa <b>${esc(v.firstName)} ${esc(v.lastName)}</b> zostanie natychmiast usunięty z systemu C4 i przestanie otwierać drzwi. Tej operacji nie można odwrócić – w razie potrzeby wyślij nowe zaproszenie.</p></div>
+    <p class="muted">Kod gościa <b>${esc(v.firstName)} ${esc(v.lastName)}</b> natychmiast przestanie otwierać drzwi. Tej operacji nie można odwrócić – w razie potrzeby wyślij nowe zaproszenie.</p></div>
     <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn destructive" id="ok">Cofnij dostęp</button></div>`,
     dlg => $('#ok', dlg).onclick = () => { dlg.close(); visitAction('revoke', v.id); });
 }
@@ -342,7 +354,7 @@ function openInvite() {
         if (isNaN(from) || isNaN(to)) { $('#sum', d).textContent = ''; return; }
         const act = new Date(+from - 30 * 6e4), deact = new Date(+to + 30 * 6e4);
         $('#sum', d).innerHTML = `Kod QR trafi ${em ? `na <b>${esc(em)}</b>` : 'na podany e-mail'} od razu po wysłaniu.
-          W systemie C4 będzie aktywny <b>${act.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} ${hm(act)}–${hm(deact)}</b> (30 min zapasu), potem zostanie usunięty automatycznie.`;
+          Kod otworzy drzwi <b>${act.toLocaleDateString('pl-PL', { day: 'numeric', month: 'short' })} ${hm(act)}–${hm(deact)}</b> (od 30 min przed wizytą do 30 min po niej), potem sam wygaśnie.`;
       };
       d.querySelectorAll('[data-h]').forEach(c => c.onclick = () => {
         if (c.dataset.h === 'day') { $('#from', d).value = '08:00'; $('#to', d).value = '18:00'; }

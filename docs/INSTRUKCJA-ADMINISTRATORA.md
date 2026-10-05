@@ -147,8 +147,8 @@ albo *Jak w systemie*; na ekranie logowania – przełącznikiem w prawym górny
 
 | Objaw | Przyczyna | Co zrobić |
 |---|---|---|
-| Na dole menu **„C4: błąd”** | Brak połączenia z C4 albo coś w konfiguracji nie istnieje w C4 | Wejdź w *Konfiguracja C4* – ramka *Do poprawy* mówi, co poprawić. Brak połączenia: sprawdź, czy działa usługa *C4 Application Server*, i zgłoś instalatorowi. |
-| Wizyta ze statusem **„Błąd C4”** | C4 odrzucił zakładanie gościa | *⋯ → Szczegóły problemu*. GuestPass ponawia próbę co 30 s (do 10 razy). |
+| Na dole menu **„C4: błąd”** (widoczne tylko dla administratora budynku) | Brak połączenia z C4 albo coś w konfiguracji nie istnieje w C4 | Wejdź w *Konfiguracja C4* – ramka *Do poprawy* mówi, co poprawić. Brak połączenia: sprawdź, czy działa usługa *C4 Application Server*, i zgłoś instalatorowi. |
+| Wizyta ze statusem **„Kod jeszcze nieaktywny”** | C4 odrzucił zakładanie gościa | *⋯ → Szczegóły problemu* – administrator budynku widzi tam szczegóły techniczne (pracownicy firm widzą tylko proste wyjaśnienie). GuestPass ponawia próbę co 30 s (do 10 razy). |
 | „…invalid or disabled CardTypeId…” | Wybrany typ karty jest wyłączony w C4 | Włącz typ karty w C4 albo wybierz inny w *Konfiguracji C4*. |
 | „…brak włączonych typów kart…” | W C4 nie ma żadnego włączonego typu karty | Włącz typ karty (min. 40-bitowy) w C4 albo wybierz *PIN*. |
 | „…duplicate card codes…” | Taki numer karty już istnieje w C4 | Cofnij dostęp i wyślij nowe zaproszenie (nowy kod). |

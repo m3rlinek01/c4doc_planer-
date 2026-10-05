@@ -41,3 +41,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 logs/
+
+# Paczka do pobrania (generowana przez git archive)
+C4GuestPass.zip

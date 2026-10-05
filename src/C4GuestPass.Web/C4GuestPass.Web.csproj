@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>C4GuestPass</RootNamespace>
+    <UserSecretsId>c4guestpass-7d1f6f0e</UserSecretsId>
+  </PropertyGroup>
+
+  <!--
+    Wybór wersji Gamanet C4 SDK (Simple Client) – musi odpowiadać wersji serwera C4.
+      dotnet build                          -> brak SDK, tylko MockC4Gateway (demo / testy)
+      dotnet build -p:C4SdkVersion=2024     -> Simple Client SDK 2024.x  (serwer C4 2024)
+      dotnet build -p:C4SdkVersion=2026     -> Simple Client SDK 2026.x  (serwer C4 2026)
+    Dokładną wersję pakietu można nadpisać: -p:C4SdkPackageVersion=2024.0.0.512
+    Pakiety pochodzą z feedu Gamanet (wymaga licencji deweloperskiej / dostępu).
+  -->
+  <PropertyGroup>
+    <C4SdkVersion Condition="'$(C4SdkVersion)' == ''">None</C4SdkVersion>
+    <C4NuGetFeed Condition="'$(C4NuGetFeed)' == ''">https://nugets.c4portal.com/nuget</C4NuGetFeed>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(C4SdkVersion)' == '2024'">
+    <C4SdkPackageVersion Condition="'$(C4SdkPackageVersion)' == ''">2024.*-*</C4SdkPackageVersion>
+    <DefineConstants>$(DefineConstants);C4SDK;C4SDK_2024</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(C4SdkVersion)' == '2026'">
+    <C4SdkPackageVersion Condition="'$(C4SdkPackageVersion)' == ''">2026.*-*</C4SdkPackageVersion>
+    <DefineConstants>$(DefineConstants);C4SDK;C4SDK_2026</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(C4SdkVersion)' != 'None'">
+    <RestoreAdditionalProjectSources>$(C4NuGetFeed)</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(C4SdkVersion)' != 'None'">
+    <PackageReference Include="Gamanet.C4.SimpleClient" Version="$(C4SdkPackageVersion)" />
+    <PackageReference Include="Gamanet.C4.SimpleInterfaces" Version="$(C4SdkPackageVersion)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.18.1" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="C4GuestPass.Tests" />
+  </ItemGroup>
+
+</Project>

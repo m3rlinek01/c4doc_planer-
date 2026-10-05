@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E66B1790-8EA9-4FCB-A112-D9885B0A5C6A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "C4GuestPass.Web", "src\C4GuestPass.Web\C4GuestPass.Web.csproj", "{761164D3-6D49-4023-83B2-3118892BB7EF}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{E4E166CD-C7A1-4D3C-A20E-EB5185E80523}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "C4GuestPass.Tests", "tests\C4GuestPass.Tests\C4GuestPass.Tests.csproj", "{6F07638E-31B9-439B-9D73-5E320EC7DE55}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{761164D3-6D49-4023-83B2-3118892BB7EF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{761164D3-6D49-4023-83B2-3118892BB7EF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{761164D3-6D49-4023-83B2-3118892BB7EF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{761164D3-6D49-4023-83B2-3118892BB7EF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6F07638E-31B9-439B-9D73-5E320EC7DE55}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6F07638E-31B9-439B-9D73-5E320EC7DE55}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6F07638E-31B9-439B-9D73-5E320EC7DE55}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6F07638E-31B9-439B-9D73-5E320EC7DE55}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{761164D3-6D49-4023-83B2-3118892BB7EF} = {E66B1790-8EA9-4FCB-A112-D9885B0A5C6A}
+		{6F07638E-31B9-439B-9D73-5E320EC7DE55} = {E4E166CD-C7A1-4D3C-A20E-EB5185E80523}
+	EndGlobalSection
+EndGlobal

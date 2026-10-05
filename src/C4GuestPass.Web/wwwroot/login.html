@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>C4 GuestPass – logowanie</title><link rel="stylesheet" href="app.css"></head>
+<body>
+<div class="card login">
+  <h2>C4 GuestPass – recepcja</h2>
+  <form id="f">
+    <label for="login">Login</label><input id="login" autocomplete="username" required autofocus>
+    <label for="password">Hasło</label><input id="password" type="password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Zaloguj</button>
+    <div id="msg" class="msg bad"></div>
+  </form>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'fetch'},
+    body: JSON.stringify({login: login.value, password: password.value})});
+  if (r.ok) location.href = '/'; else { msg.textContent = 'Nieprawidłowy login lub hasło.'; msg.classList.add('show'); }
+});
+</script>
+</body></html>

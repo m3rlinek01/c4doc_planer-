@@ -1,11 +1,11 @@
 <!doctype html>
 <html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Logowanie · GuestPass</title><link rel="icon" href="logo.svg"><link rel="stylesheet" href="app.css"></head>
+<title>Logowanie · GuestPass</title><link rel="icon" href="logo.svg"><script src="theme.js"></script><link rel="stylesheet" href="app.css"></head>
 <body>
 <div class="auth">
   <section class="pitch">
-    <div class="brand"><img src="logo-light.svg" width="28" height="28" alt=""><div>GuestPass<small>dla Gamanet C4</small></div></div>
-    <svg class="qrart" id="qrart" width="560" height="560" viewBox="0 0 28 28" aria-hidden="true"></svg>
+    <svg class="facade" id="facade" viewBox="0 0 420 560" preserveAspectRatio="xMaxYMax meet" aria-hidden="true"></svg>
+    <div class="brand"><img src="logo-light.svg" width="28" height="28" alt=""><div>GuestPass<small>Wise Point · al. Jana Pawła II 17</small></div></div>
     <h1>Goście wchodzą <em>kodem QR</em>.<br>Bez plastikowych kart.</h1>
     <p>Zaproszenie wysłane z biura trafia do gościa e-mailem. Kod otwiera tylko przydzielone strefy i tylko na czas wizyty — potem znika z systemu kontroli dostępu.</p>
     <div class="steps">
@@ -15,6 +15,7 @@
     </div>
   </section>
   <section class="form">
+    <div class="seg theme-switch" role="group" aria-label="Motyw" id="theme"></div>
     <div>
       <h2>Zaloguj się</h2>
       <p class="lead">Konto otrzymasz od administratora swojej firmy.</p>
@@ -28,15 +29,39 @@
   </section>
 </div>
 <script>
-(() => { // dekoracyjny „kod” – deterministyczny wzór, nie prawdziwy QR
-  const s = document.getElementById('qrart'); let x = 7, out = '';
-  const finder = (a, b) => `<path d="M${a} ${b}h7v7h-7zM${a+1} ${b+1}v5h5v-5z M${a+2} ${b+2}h3v3h-3z" fill="#fff" fill-rule="evenodd"/>`;
-  out += finder(0, 0) + finder(21, 0) + finder(0, 21);
-  for (let i = 0; i < 28; i++) for (let j = 0; j < 28; j++) {
-    if ((i < 8 && j < 8) || (i > 19 && j < 8) || (i < 8 && j > 19)) continue;
-    x = (x * 1103515245 + 12345) & 0x7fffffff; if (x % 7 < 3) out += `<rect x="${i}" y="${j}" width="1" height="1" fill="#fff"/>`;
+(() => { // ilustracja inspirowana Wise Point: łukowa szklana fasada z pasami okien, kamienne skrzydło, kolumny parteru
+  const svg = document.getElementById('facade');
+  let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const glass = 'M40 64 Q170 66 300 118 L300 470 L40 470 Z';
+  let out = `<defs><clipPath id="g"><path d="${glass}"/></clipPath></defs>`;
+  out += '<rect class="ground" x="0" y="540" width="420" height="20"/>';
+  // kamienne skrzydło z rytmem okien
+  out += '<rect class="stone" x="250" y="228" width="150" height="312"/>';
+  for (let y = 244; y < 520; y += 24) for (let x = 306; x < 392; x += 22)
+    out += `<rect class="${rnd() < .22 ? 'lit' : 'swin'}" x="${x}" y="${y}" width="13" height="11"/>`;
+  // dach techniczny z lamelami
+  out += '<rect class="metal" x="168" y="74" width="164" height="54"/>';
+  for (let x = 172; x < 330; x += 6) out += `<rect class="mull" x="${x}" y="78" width="1" height="46" style="fill:var(--glass-line)"/>`;
+  // szkło: tło, poziome pasy, słupki zagęszczające się ku łukowi
+  out += `<path class="glass" d="${glass}"/><g clip-path="url(#g)">`;
+  for (let y = 84; y < 470; y += 20) {
+    out += `<rect class="band" x="40" y="${y}" width="260" height="9"/>`;
+    for (let x = 44; x < 296; x += 14) if (rnd() < .16) out += `<rect class="lit" x="${x}" y="${y}" width="12" height="9"/>`;
   }
-  s.innerHTML = out;
+  for (let t = 0, x = 40; x < 300; t++) { x += 6 + t * .9; out += `<line class="mull" x1="${x}" y1="60" x2="${x}" y2="470" stroke-width="1"/>`; }
+  out += '</g>';
+  // parter: cofnięty hol i smukłe kolumny
+  out += '<rect class="swin" x="118" y="470" width="132" height="70"/>';
+  for (const x of [58, 104, 162, 222]) out += `<rect class="col" x="${x}" y="470" width="9" height="70" rx="2"/>`;
+  out += '<circle class="dot" cx="40" cy="64" r="7"/>';
+  svg.innerHTML = out;
+})();
+(() => { // przełącznik motywu
+  const box = document.getElementById('theme');
+  const draw = () => box.innerHTML = ['light', 'dark', 'system'].map(t =>
+    `<button type="button" data-t="${t}" aria-pressed="${gpTheme.get() === t}">${gpTheme.labels[t] === 'Jak w systemie' ? 'Auto' : gpTheme.labels[t]}</button>`).join('');
+  box.addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (b) { gpTheme.set(b.dataset.t); draw(); } });
+  draw();
 })();
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();

@@ -131,6 +131,18 @@ Nowe konto dostaje **hasło tymczasowe** (pokazywane raz) – przy pierwszym log
 * **⋯ → Cofnij dostęp** – natychmiast usuwa gościa z C4 (np. zgubiony lub przekazany kod).
 * **⋯ → Pokaż kod QR / Wyślij e-mail ponownie** – gdy gość nie ma maila.
 
+### Wygląd: motyw jasny i ciemny
+
+Wygląd aplikacji nawiązuje do budynku Wise Point: zielonkawo-szare szkło łukowej elewacji, jasny kamień
+i limonkowy akcent marki. Są dwa motywy – **jasny** („dzień”) i **ciemny** („zmierzch”, z bursztynowym
+światłem okien). Każdy użytkownik wybiera motyw w menu swojego konta (lewy dolny róg): *Jasny*, *Ciemny*
+albo *Jak w systemie*; na ekranie logowania – przełącznikiem w prawym górnym rogu. Wybór zapamiętuje przeglądarka.
+
+| Jasny | Ciemny |
+|---|---|
+| ![Logowanie – jasny](screens/wp-light-login.png) | ![Logowanie – ciemny](screens/wp-dark-login.png) |
+| ![Konfiguracja – jasny](screens/wp-light-konfiguracja.png) | ![Konfiguracja – ciemny](screens/wp-dark-konfiguracja.png) |
+
 ## 8. Gdy coś nie działa
 
 | Objaw | Przyczyna | Co zrobić |

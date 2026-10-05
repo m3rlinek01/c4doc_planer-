@@ -21,6 +21,11 @@ const I = {
   out: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6"/></svg>',
   gear: '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>',
   trash: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4"/></svg>',
+  theme: {
+    light: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6L13 13M3 13l1.4-1.4M11.6 4.4L13 3"/></svg>',
+    dark: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>',
+    system: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5.5 14h5M8 11.5V14"/></svg>',
+  },
   copy: '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="5" y="5" width="9" height="9" rx="1"/><path d="M11 5V2H2v9h3"/></svg>',
 };
 
@@ -271,7 +276,7 @@ async function visitAction(act, id, anchor) {
 function confirmRevoke(v) {
   openDialog(`<div class="d-body"><h2>Cofnąć dostęp?</h2>
     <p class="muted">Kod gościa <b>${esc(v.firstName)} ${esc(v.lastName)}</b> zostanie natychmiast usunięty z systemu C4 i przestanie otwierać drzwi. Tej operacji nie można odwrócić – w razie potrzeby wyślij nowe zaproszenie.</p></div>
-    <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn accent" id="ok">Cofnij dostęp</button></div>`,
+    <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn destructive" id="ok">Cofnij dostęp</button></div>`,
     dlg => $('#ok', dlg).onclick = () => { dlg.close(); visitAction('revoke', v.id); });
 }
 
@@ -659,7 +664,7 @@ function openZone(z) {
 function confirmDeleteZone(z) {
   openDialog(`<div class="d-body"><h2>Usunąć strefę?</h2>
     <p class="muted">Strefa <b>${esc(z.name)}</b> zniknie z listy przy zapraszaniu gości. Folderu i uprawnień w C4 to nie zmienia.</p></div>
-    <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn accent" id="ok">Usuń</button></div>`,
+    <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn destructive" id="ok">Usuń</button></div>`,
     dlg => $('#ok', dlg).onclick = async () => {
       dlg.close();
       try { await api(`/zones/${encodeURIComponent(z.id)}`, { method: 'DELETE' }); S.zones = S.zones.filter(x => x.id !== z.id); toast('Strefa usunięta'); await refreshHealth(); }
@@ -686,7 +691,10 @@ async function submitPassword(root) {
 }
 
 function openAccountMenu(anchor) {
+  const cur = gpTheme.get();
   openMenu(anchor, [
+    ...['light', 'dark', 'system'].map(t => ({ label: `Motyw: ${gpTheme.labels[t]}${t === cur ? '  ✓' : ''}`, icon: I.theme[t], run: () => gpTheme.set(t) })),
+    '-',
     { label: 'Zmień hasło', icon: I.key, run: () => openDialog(`<div class="d-body"><h2>Zmiana hasła</h2>${changePasswordForm(false)}</div>
         <div class="d-foot"><button class="btn ghost" data-close>Anuluj</button><button class="btn primary" id="ok">Zmień hasło</button></div>`,
         dlg => $('#ok', dlg).onclick = async () => { if (await submitPassword(dlg)) { dlg.close(); toast('Hasło zmienione'); } }) },
